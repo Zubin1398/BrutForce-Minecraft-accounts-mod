@@ -1,24 +1,52 @@
-# Compiled class file
-*.class
+# Gradle project cache and build output
+.gradle/
+build/
+out/
+bin/
 
-# Log file
+# Forge dev runtime
+run/
+runs/
+logs/
+crash-reports/
+latest.log
 *.log
 
-# BlueJ files
-*.ctxt
+# IDE / editor
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
 
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+# JVM crash dumps
 hs_err_pid*
 replay_pid*
+*.hprof
+
+# Local configs and secrets (AuthProbe writes config/authprobe.json at runtime)
+config/
+authprobe.json
+.env
+.env.*
+secrets.properties
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# Build artifacts and archives
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.tmp
+*.bak
