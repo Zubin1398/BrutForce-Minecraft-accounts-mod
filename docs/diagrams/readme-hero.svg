@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-label="AuthProbe — multi-nick login probe for Minecraft 1.20.1 Forge">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070d14"/>
+      <stop offset="0.55" stop-color="#0b1724"/>
+      <stop offset="1" stop-color="#0e2436"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#1e3a52" stroke-width="1" opacity="0.5"/>
+    </pattern>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="320" rx="26" fill="url(#bg)"/>
+  <rect width="1200" height="320" rx="26" fill="url(#grid)"/>
+  <circle cx="1060" cy="70" r="150" fill="#38bdf8" opacity="0.10" filter="url(#glow)"/>
+  <circle cx="1120" cy="260" r="120" fill="#34d399" opacity="0.08" filter="url(#glow)"/>
+  <rect x="0" y="0" width="1200" height="4" fill="url(#accent)"/>
+
+  <text x="72" y="98" font-family="Segoe UI, Arial, sans-serif" font-size="56" font-weight="700" fill="#e6f1ff">AuthProbe</text>
+  <text x="74" y="134" font-family="Segoe UI, Arial, sans-serif" font-size="21" fill="#8fb8dd">Multi-nick login probe · one try per password · proxy rotation</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">
+    <rect x="72" y="162" width="172" height="30" rx="15" fill="#0f2a3d" stroke="#2f6484"/>
+    <text x="158" y="182" text-anchor="middle" fill="#9fd8ff">Minecraft 1.20.1</text>
+    <rect x="254" y="162" width="112" height="30" rx="15" fill="#0f2a3d" stroke="#2f6484"/>
+    <text x="310" y="182" text-anchor="middle" fill="#9fd8ff">Forge</text>
+    <rect x="376" y="162" width="150" height="30" rx="15" fill="#10281f" stroke="#2f7a5a"/>
+    <text x="451" y="182" text-anchor="middle" fill="#9af0c4">client-side</text>
+    <rect x="536" y="162" width="226" height="30" rx="15" fill="#1a1630" stroke="#5b4d95"/>
+    <text x="649" y="182" text-anchor="middle" fill="#c4b5fd">SOCKS5 · HTTP CONNECT</text>
+  </g>
+
+  <g font-family="Consolas, 'Cascadia Mono', monospace" font-size="16">
+    <rect x="72" y="214" width="1056" height="76" rx="12" fill="#050b11" stroke="#1f3b52"/>
+    <circle cx="96" cy="232" r="5" fill="#f87171"/>
+    <circle cx="114" cy="232" r="5" fill="#fbbf24"/>
+    <circle cx="132" cy="232" r="5" fill="#34d399"/>
+    <text x="94" y="262" fill="#8fb8dd">[AuthProbe]</text>
+    <text x="198" y="262" fill="#e6f1ff">attempt 3/12:</text>
+    <text x="330" y="262" fill="#fbbf24">&lt;qwerty&gt;</text>
+    <text x="442" y="262" fill="#8fb8dd">nick done.</text>
+    <text x="538" y="262" fill="#e6f1ff">next nick: Alex,</text>
+    <text x="692" y="262" fill="#e6f1ff">next password: 123456</text>
+    <text x="94" y="282" fill="#34d399">PASSWORD FOUND:</text>
+    <text x="230" y="282" fill="#55ff88">hunter2</text>
+    <text x="310" y="282" fill="#8fb8dd">(password #3 of 12, 5 sends total)</text>
+  </g>
+</svg>

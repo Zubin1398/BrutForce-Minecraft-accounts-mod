@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="AuthProbe flow: profiles, connect, one password per try, verdict, next password or next nickname">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070d14"/>
+      <stop offset="1" stop-color="#0d2033"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#3f6d92"/>
+    </marker>
+    <marker id="arrowG" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#34d399"/>
+    </marker>
+    <marker id="arrowR" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#f87171"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="300" rx="24" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1200" height="4" rx="2" fill="#38bdf8"/>
+  <text x="60" y="52" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#e6f1ff">Как идёт прогон</text>
+  <text x="60" y="76" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#8fb8dd">Один пароль — одна отправка. Кик тоже считается попыткой.</text>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">
+    <rect x="60" y="110" width="196" height="74" rx="12" fill="#0f2131" stroke="#2f6484"/>
+    <text x="158" y="140" text-anchor="middle" fill="#9fd8ff">Профили ников</text>
+    <text x="158" y="162" text-anchor="middle" font-size="12" fill="#7fa6c6">ник + свой список паролей</text>
+
+    <rect x="306" y="110" width="176" height="74" rx="12" fill="#0f2131" stroke="#2f6484"/>
+    <text x="394" y="140" text-anchor="middle" fill="#9fd8ff">Подключение</text>
+    <text x="394" y="162" text-anchor="middle" font-size="12" fill="#7fa6c6">смена сессии / прокси</text>
+
+    <rect x="532" y="110" width="196" height="74" rx="12" fill="#132a3c" stroke="#38bdf8"/>
+    <text x="630" y="140" text-anchor="middle" fill="#e6f1ff">Отправка пароля</text>
+    <text x="630" y="162" text-anchor="middle" font-size="12" fill="#fbbf24">/l или /login</text>
+
+    <rect x="778" y="110" width="176" height="74" rx="12" fill="#0f2131" stroke="#2f6484"/>
+    <text x="866" y="140" text-anchor="middle" fill="#9fd8ff">Ответ сервера</text>
+    <text x="866" y="162" text-anchor="middle" font-size="12" fill="#7fa6c6">успех / провал / кик</text>
+
+    <rect x="1004" y="110" width="136" height="74" rx="12" fill="#0c241b" stroke="#34d399"/>
+    <text x="1072" y="140" text-anchor="middle" fill="#9af0c4">Пароль найден</text>
+    <text x="1072" y="162" text-anchor="middle" font-size="12" fill="#55ff88">SUCCESS · стоп</text>
+  </g>
+
+  <path d="M256 147 H300" stroke="#3f6d92" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M482 147 H526" stroke="#3f6d92" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M728 147 H772" stroke="#3f6d92" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M954 147 H998" stroke="#34d399" stroke-width="2" marker-end="url(#arrowG)"/>
+
+  <path d="M866 184 V236 H394 V188" fill="none" stroke="#f87171" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrowR)"/>
+  <text x="640" y="228" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#fca5a5">провал / кик / тайм-аут → следующий пароль</text>
+
+  <path d="M394 236 V262 H158" fill="none" stroke="#fbbf24" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+  <text x="268" y="278" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#fcd34d">пароли кончились → следующий ник</text>
+</svg>
