@@ -16,6 +16,7 @@
 <img src="https://img.shields.io/badge/side-client--only-4c8dff?style=for-the-badge" alt="Client only"/>
 <img src="https://img.shields.io/badge/proxies-SOCKS5%20%7C%20HTTP-8957e5?style=for-the-badge" alt="SOCKS5 and HTTP CONNECT"/>
 <img src="https://img.shields.io/badge/config-plain%20JSON-8b949e?style=for-the-badge" alt="Plain JSON config"/>
+<img src="https://img.shields.io/badge/license-MIT-2ea043?style=for-the-badge" alt="MIT License"/>
 
 </div>
 
@@ -512,4 +513,4 @@ src/main/java/ru/an0n/authprobe/
 
 ## 📜 Лицензия
 
-**All-Rights-Reserved.** См. `license` в `META-INF/mods.toml`.
+**MIT.** См. [LICENSE](LICENSE). Лицензия покрывает оригинальный код мода; Minecraft, Forge и их ассеты остаются под своими лицензиями и EULA Mojang.
