@@ -60,7 +60,7 @@
     <td align="center"><a href="#-разбор-проблем">Проблемы</a></td>
   </tr>
   <tr>
-    <td align="right"><b>📚 Ещё</b></td>
+    <td align="right"><b>📚 Other</b></td>
     <td align="center"><a href="#-ограничения">Ограничения</a></td>
     <td align="center"><a href="#-планы">Планы</a></td>
     <td align="center"><a href="#-лицензия">Лицензия</a></td>
