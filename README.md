@@ -38,7 +38,7 @@
   <tr>
     <td align="right"><b>🚀 Старт</b></td>
     <td align="center"><a href="#-быстрый-старт">Быстрый старт</a></td>
-    <td align="center"><a href="#-интерфейс">Интерфейс</a></td>
+    <td align="center"><a href="#%EF%B8%8F-интерфейс">Интерфейс</a></td>
     <td align="center"><a href="#-мульти-ник">Мульти-ник</a></td>
   </tr>
   <tr>
