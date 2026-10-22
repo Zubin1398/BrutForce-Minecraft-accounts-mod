@@ -38,7 +38,7 @@
   <tr>
     <td align="right"><b>🚀 Старт</b></td>
     <td align="center"><a href="#-быстрый-старт">Быстрый старт</a></td>
-    <td align="center"><a href="#%EF%B8%8F-интерфейс">Интерфейс</a></td>
+    <td align="center"><a href="#-интерфейс">Интерфейс</a></td>
     <td align="center"><a href="#-мульти-ник">Мульти-ник</a></td>
   </tr>
   <tr>
@@ -62,7 +62,7 @@
   <tr>
     <td align="right"><b>📚 Other</b></td>
     <td align="center"><a href="#-ограничения">Ограничения</a></td>
-    <td align="center"><a href="#-планы">Планы</a></td>
+    <td align="center"><a href="#-планыидеи">Планы</a></td>
     <td align="center"><a href="#-лицензия">Лицензия</a></td>
   </tr>
 </table>
