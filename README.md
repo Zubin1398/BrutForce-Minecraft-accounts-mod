@@ -56,7 +56,7 @@
   <tr>
     <td align="right"><b>⌨ Быстро</b></td>
     <td align="center"><a href="#macro">Макрос</a></td>
-    <td align="center"><a href="#import">Импорт .txt</a></td>
+    <td align="center"><a href="#import">Импорт ников и паролей.txt</a></td>
     <td align="center"></td>
   </tr>
   <tr>
