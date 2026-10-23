@@ -5,7 +5,7 @@ clientSideOnly=true
 
 [[mods]]
 modId="authprobe"
-version="1.3.0"
+version="1.3.1"
 displayName="AuthProbe"
 authors="AN0N"
 description="Client-side login probe for offline-mode Minecraft servers. Sends a configured login command on demand and reports which password was accepted."

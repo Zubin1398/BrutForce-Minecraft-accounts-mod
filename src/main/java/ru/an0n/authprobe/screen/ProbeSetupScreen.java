@@ -6,26 +6,16 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import ru.an0n.authprobe.AuthProbe;
 import ru.an0n.authprobe.BotController;
 import ru.an0n.authprobe.ChatWatcher;
 import ru.an0n.authprobe.ProbeConfig;
 import ru.an0n.authprobe.ProbeTarget;
 import ru.an0n.authprobe.ServerConnector;
-import ru.an0n.authprobe.utils.NickImport;
 import ru.an0n.authprobe.utils.Nicks;
 import ru.an0n.authprobe.utils.PasswordList;
 
-import java.awt.FileDialog;
-import java.awt.Frame;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Main setup screen: target, nickname, password list, tuning knobs and the live chat pane.
@@ -310,7 +300,7 @@ public final class ProbeSetupScreen extends Screen {
         this.addRenderableWidget(stopButton);
 
         Button importButton = Button.builder(Component.translatable("authprobe.button.import"),
-                        pressed -> this.importFile())
+                        pressed -> this.minecraft.setScreen(new ImportScreen(this, true)))
                 .bounds(buttonX + (buttonWidth + 4) * 2, buttonY, buttonWidth, 20).build();
         importButton.setTooltip(tooltip("authprobe.button.import.tip"));
         this.addRenderableWidget(importButton);
@@ -557,57 +547,6 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         ProbeConfig config = ProbeConfig.INSTANCE;
         config.address(this.addressBox.getValue());
         config.primary(new ProbeTarget(this.nickBox.getValue().trim(), PasswordList.parse(this.passwordBox.getValue())));
-    }
-
-    /**
-     * Opens a native file dialog, imports the selected .txt and replaces the profiles.
-     */
-    private void importFile() {
-        try {
-            FileDialog dialog = new FileDialog((Frame) null,
-                    Component.translatable("authprobe.import.title").getString(), FileDialog.LOAD);
-            dialog.setFilenameFilter((dir, name) -> name.toLowerCase(Locale.ROOT).endsWith(".txt"));
-            dialog.setFile("*.txt");
-            dialog.setMultipleMode(false);
-            dialog.setAlwaysOnTop(true);
-            dialog.setVisible(true);
-            String file = dialog.getFile();
-            String directory = dialog.getDirectory();
-            dialog.dispose();
-            if (file == null || directory == null) return;
-
-            List<ProbeTarget> imported = NickImport.parse(readText(Paths.get(directory, file)));
-            if (imported.isEmpty()) {
-                BotController.announce("import: no nicknames found");
-                return;
-            }
-
-            ProbeConfig.INSTANCE.replaceTargets(imported);
-            ProbeConfig.INSTANCE.save();
-            this.loadTargetFields();
-            int passwords = 0;
-            for (ProbeTarget target : imported) passwords += target.passwordCount();
-            BotController.announce("imported " + imported.size() + " nicks, " + passwords + " passwords");
-            AuthProbe.logger().info("AuthProbe: imported {} nicks and {} passwords from {}.",
-                    imported.size(), passwords, file);
-        } catch (Throwable throwable) {
-            AuthProbe.logger().warn("AuthProbe: import failed.", throwable);
-            BotController.announce("import failed: " + throwable.getMessage());
-        }
-    }
-
-    /**
-     * Reads UTF-8, falling back to windows-1251 when the file is not valid UTF-8.
-     *
-     * @param path File path
-     * @return File text
-     * @throws Exception When the file cannot be read
-     */
-    private static String readText(Path path) throws Exception {
-        byte[] bytes = Files.readAllBytes(path);
-        String text = new String(bytes, StandardCharsets.UTF_8);
-        if (text.indexOf('\uFFFD') >= 0) text = new String(bytes, Charset.forName("windows-1251"));
-        return text;
     }
 
     /**

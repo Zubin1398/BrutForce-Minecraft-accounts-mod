@@ -10,7 +10,7 @@
 
 <div align="center">
 
-<img src="https://img.shields.io/badge/version-1.3.0-2ea043?style=for-the-badge" alt="Version 1.3.0"/>
+<img src="https://img.shields.io/badge/version-1.3.1-2ea043?style=for-the-badge" alt="Version 1.3.1"/>
 <img src="https://img.shields.io/badge/Minecraft-1.20.1-62b47a?style=for-the-badge" alt="Minecraft 1.20.1"/>
 <img src="https://img.shields.io/badge/Forge-47.3.19%2B-f16436?style=for-the-badge" alt="Forge 47.3.19+"/>
 <img src="https://img.shields.io/badge/side-client--only-4c8dff?style=for-the-badge" alt="Client only"/>
@@ -56,7 +56,7 @@
   <tr>
     <td align="right"><b>⌨ Быстро</b></td>
     <td align="center"><a href="#macro">Макрос</a></td>
-    <td align="center"><a href="#import">Импорт ников и паролей.txt</a></td>
+    <td align="center"><a href="#import">Импорт .txt</a></td>
     <td align="center"></td>
   </tr>
   <tr>
@@ -99,8 +99,9 @@
 | 📥 **Импорт .txt** | Импорт ников и паролей из текстового файла формата `ник \| комментарий` + пароли строками. |
 | 🧩 **Локализация** | Русский и английский интерфейс. |
 
-### 🆕 Что нового в 1.3.0
+### 🆕 Что нового в 1.3.1
 
+- **Исправлен импорт `.txt`:** кнопка теперь открывает отдельное окно с полем пути; проводник запускается на AWT-потоке, а если он недоступен — путь можно вставить вручную.
 - **Макрос запуска:** кнопка **Макрос .start/.go** в параметрах и бинд в `Настройки → Управление → AuthProbe`.
 - **Импорт `.txt`:** ники и пароли из файла, формат `ник | комментарий`, пароли — следующими строками.
 - **«Продолжить» больше не отправляет пароли сама.** Она переподключает и ждёт `.start` / `.go`; команда продолжает с сохранённой позиции, а не с #1.
@@ -118,7 +119,7 @@
 
 **1) Установка**
 
-Скачать `AuthProbe-1.3.0+1.20.1-forge.jar` и положить в:
+Скачать `AuthProbe-1.3.1+1.20.1-forge.jar` и положить в:
 
 ```text
 %APPDATA%\.minecraft\mods\
@@ -271,7 +272,7 @@
 
 ## 📥 Импорт .txt
 
-Кнопка **Импорт .txt** внизу меню открывает файл и **заменяет** текущие профили. Формат:
+Кнопка **Импорт .txt** открывает окно импорта: оно сразу пытается показать проводник, а если AWT/проводник недоступен — остаётся поле пути, куда можно вставить путь вручную и нажать **Импортировать**. Импорт **заменяет** текущие профили. Формат:
 
 ```text
 frantic | АСПИД
@@ -514,7 +515,7 @@ Proxy включается кнопкой **Прокси**, список и пр
 ```powershell
 $env:JAVA_HOME="C:\Program Files\Java\jdk-21"
 .\gradlew.bat --no-daemon assemble
-# → build\libs\AuthProbe-1.3.0+1.20.1-forge.jar
+# → build\libs\AuthProbe-1.3.1+1.20.1-forge.jar
 ```
 
 Быстрая проверка Java-логики без Gradle и Minecraft:
