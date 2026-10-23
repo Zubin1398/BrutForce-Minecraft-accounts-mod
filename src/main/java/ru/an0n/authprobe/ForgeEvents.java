@@ -19,7 +19,7 @@ import java.util.Locale;
 /**
  * Forge event subscribers.
  *
- * <p>Dot commands (".start", ".next") are plain chat, not commands, and that is deliberate:
+ * <p>Dot commands (".start", ".go") are plain chat, not commands, and that is deliberate:
  * {@code ClientChatEvent} only fires for the chat path. Cancelling the event makes Forge's hook
  * return an empty string, so the line never leaves the client — the server never sees it.
  * A "/"-prefixed equivalent would route through {@code ClientCommandHandler} and be unreachable.
@@ -39,11 +39,6 @@ public final class ForgeEvents {
      * Start alias.
      */
     private static final String CMD_GO = ".go";
-
-    /**
-     * Skip to the next password.
-     */
-    private static final String CMD_NEXT = ".next";
 
     /**
      * Stop the probe.
@@ -105,10 +100,6 @@ public final class ForgeEvents {
                 event.setCanceled(true);
                 BotController.begin();
             }
-            case CMD_NEXT -> {
-                event.setCanceled(true);
-                BotController.next();
-            }
             case CMD_STOP -> {
                 event.setCanceled(true);
                 BotController.stop();
@@ -119,7 +110,7 @@ public final class ForgeEvents {
             }
             case CMD_HELP -> {
                 event.setCanceled(true);
-                BotController.announce(".start / .go - begin | .next - skip password and continue"
+                BotController.announce(".start / .go - begin or continue"
                         + " | .stop - stop | .status - position | .help - this");
             }
             default -> {

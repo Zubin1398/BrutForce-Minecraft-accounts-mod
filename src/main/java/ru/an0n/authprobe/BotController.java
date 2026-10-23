@@ -9,6 +9,8 @@ import net.minecraft.network.chat.Component;
 import ru.an0n.authprobe.proxy.ProxyEntry;
 import ru.an0n.authprobe.utils.Nicks;
 
+import java.util.List;
+
 /**
  * The probe state machine. Ticked once per client tick on the client thread.
  *
@@ -122,6 +124,11 @@ public final class BotController {
     private static boolean autoResume;
 
     /**
+     * Set by the kick-screen Continue button: reconnect, but do not send until .start/.go.
+     */
+    private static boolean waitForStart;
+
+    /**
      * Whether the current password was already put on the wire and has not been accounted
      * for by a verdict yet. Used so an automatic reconnect does not spend a second try on
      * a password that already went out.
@@ -139,6 +146,39 @@ public final class BotController {
      * Deferred so it never runs inside the disconnect packet handler.
      */
     private static boolean switchPending;
+
+    /**
+     * Earliest time the queued nickname switch may connect, milliseconds.
+     */
+    private static long switchAt;
+
+    /**
+     * Substrings that mean the nickname itself was rejected (invalid name, already online).
+     */
+    private static final List<String> NICK_KICKS = List.of(
+            "already logged in", "already connected", "already online", "already in game",
+            "already playing", "already on the server", "player is already", "name is already",
+            "nickname is already", "you are already", "name is already in use",
+            "invalid nickname", "invalid username", "bad nickname", "illegal nickname",
+            "failed to verify username", "failed to verify authentication",
+            "уже на сервере", "уже в игре", "уже авторизован", "уже находится", "ник уже",
+            "ник занят", "ник в онлайне", "неверный ник", "неправильный ник", "недопустимый ник"
+    );
+
+    /**
+     * Target index the current run started from.
+     */
+    private static int runStartTarget;
+
+    /**
+     * Target index that was abandoned because the nickname itself was rejected.
+     */
+    private static int skippedTarget = -1;
+
+    /**
+     * Reason the nickname was abandoned, empty when none.
+     */
+    private static String skippedReason = "";
 
     /**
      * Time the automatic reconnect is due, milliseconds.
@@ -329,6 +369,7 @@ public final class BotController {
         autoResume = false;
         begun = false;
         switchPending = false;
+        waitForStart = false;
         ChatWatcher.disarm();
         announce("stopped." + (wasRunning ? " " + describePosition() : ""));
         ProbeConfig.INSTANCE.save();
@@ -343,68 +384,61 @@ public final class BotController {
             announce("no passwords entered");
             return;
         }
-        passwordIndex = 0;
-        lastPassword = "";
-        kickReason = "";
-        reconnectCount = 0;
+        boolean resume = begun && passwordIndex < config.passwordCount();
+        waitForStart = false;
+        if (!resume) {
+            passwordIndex = 0;
+            lastPassword = "";
+            kickReason = "";
+            reconnectCount = 0;
+            runStartTarget = config.activeIndex();
+            skippedTarget = -1;
+            skippedReason = "";
+        }
         autoResume = false;
         sendSpent = false;
         begun = true;
         ChatWatcher.arm();
         state = State.WAIT_SEND;
         nextSendAt = 0L;
-        announce("start. " + config.passwordCount() + " passwords");
+        announce(resume ? "resume at " + describePosition() : "start. " + config.passwordCount() + " passwords");
     }
 
     /**
-     * Skips the current password and continues.
-     */
-    public static void next() {
-        passwordIndex++;
-        sendSpent = false;
-        reconnectPending = false;
-        continueFromPosition();
-    }
-
-    /**
-     * Continues from the current position without skipping.
+     * Reconnects and waits for {@code .start}/{@code .go} to continue from the stored position.
      */
     public static void resume() {
-        sendSpent = false;
-        reconnectPending = false;
-        continueFromPosition();
-    }
-
-    /**
-     * Continues probing, reconnecting first if the session is gone.
-     */
-    private static void continueFromPosition() {
         ProbeConfig config = ProbeConfig.INSTANCE;
-        Minecraft minecraft = Minecraft.getInstance();
+        waitForStart = true;
+        autoResume = false;
+        reconnectPending = false;
+        sendSpent = false;
+        ChatWatcher.disarm();
 
-        // Ran off the end.
         if (passwordIndex >= config.passwordCount()) {
-            passwordIndex = Math.max(0, config.passwordCount() - 1);
-            exhausted();
+            if (hasUsableNextTarget()) {
+                switchPending = true;
+                switchAt = System.currentTimeMillis();
+                state = State.DISCONNECTED;
+                announce("switching to the next nick. type .start or .go to continue");
+                return;
+            }
+            waitForStart = false;
+            announce("nothing to continue");
             return;
         }
 
-        ChatWatcher.arm();
-
-        // Already in game, just carry on.
+        Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.getConnection() != null && minecraft.player != null) {
-            state = State.WAIT_SEND;
-            nextSendAt = 0L;
-            announce("continuing at " + describePosition());
+            state = State.ARMED;
+            announce("ready. type .start or .go to continue at " + describePosition());
             return;
         }
 
-        // Session is gone, reconnect then wait for the next start.
         state = State.DISCONNECTED;
         reconnectPending = true;
         reconnectAt = 0L;
-        autoResume = true;
-        announce("reconnecting to continue at " + describePosition());
+        announce("reconnecting. type .start or .go to continue at " + describePosition());
     }
 
     /**
@@ -448,6 +482,10 @@ public final class BotController {
         // one try per password and ends when the list is exhausted.
         AuthProbe.logger().warn("AuthProbe: disconnected. {} | reason: {}", describePosition(), kickReason.isEmpty() ? "(none)" : kickReason);
         announceLastUsed("disconnected");
+        if (isNickKick(kickReason)) {
+            abandonNick(kickReason);
+            return;
+        }
         if (wasSent) {
             advance();
             if (passwordIndex >= ProbeConfig.INSTANCE.passwordCount()) {
@@ -482,6 +520,11 @@ public final class BotController {
         state = State.DISCONNECTED;
         ChatWatcher.disarm();
 
+        if (isNickKick(kickReason)) {
+            abandonNick(kickReason);
+            return;
+        }
+
         AuthProbe.logger().warn("AuthProbe: connect failed. reason: {}", kickReason.isEmpty() ? "(none)" : kickReason);
         announce("connect failed." + (kickReason.isEmpty() ? "" : " " + kickReason));
 
@@ -503,7 +546,7 @@ public final class BotController {
         if (minecraft == null) return;
 
         // Finish a queued nickname switch after the disconnect handling of the previous tick.
-        if (switchPending && !ServerConnector.isConnecting()) {
+        if (switchPending && System.currentTimeMillis() >= switchAt && !ServerConnector.isConnecting()) {
             switchPending = false;
             switchToNextTarget();
             return;
@@ -522,16 +565,27 @@ public final class BotController {
                 // Joined.
                 if (minecraft.getConnection() != null && minecraft.player != null) {
                     state = State.ARMED;
+                    announceNickHeader();
+                    AuthProbe.logger().info("AuthProbe: joined as nick #{} '{}'.",
+                            ProbeConfig.INSTANCE.activeIndex() + 1, ProbeConfig.INSTANCE.nick());
 
                     // Auto-start begins the run once. After a reconnect it resumes at the stored
                     // position instead of resetting to password #1, which would spend extra tries.
-                    if (!begun && ProbeConfig.INSTANCE.autoStart()) {
+                    if (waitForStart) {
+                        waitForStart = false;
+                        autoResume = false;
+                        ChatWatcher.disarm();
+                        state = State.ARMED;
+                        announce("joined. type .start or .go to continue at " + describePosition());
+                    } else if (!begun && ProbeConfig.INSTANCE.autoStart()) {
                         begin();
                     } else if (autoResume || (begun && ProbeConfig.INSTANCE.autoStart())) {
                         autoResume = false;
                         continueAfterJoin();
                     } else {
-                        announce("joined. type .start to begin, or .next to continue from the stored position");
+                        announce(begun
+                                ? "joined. type .start or .go to continue at " + describePosition()
+                                : "joined. type .start or .go to begin");
                     }
                 }
             }
@@ -638,12 +692,30 @@ public final class BotController {
      * @param password Password that was sent
      */
     private static void announcePassword(String password) {
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft == null || minecraft.player == null) return;
-        Component line = Component.literal(PREFIX + "attempt " + (passwordIndex + 1) + "/"
-                        + ProbeConfig.INSTANCE.passwordCount() + ": ")
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        Component line = Component.literal(PREFIX + "nick ")
+                .append(Component.literal("#" + (config.activeIndex() + 1) + "/" + config.targets().size())
+                        .withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" · password "))
+                .append(Component.literal("#" + (passwordIndex + 1) + "/" + config.passwordCount())
+                        .withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(": "))
                 .append(Component.literal("<" + password + ">").withStyle(ChatFormatting.YELLOW));
-        minecraft.player.displayClientMessage(line, false);
+        announce(line);
+    }
+
+    /**
+     * Prints the current nickname once after joining, with its number and name.
+     */
+    private static void announceNickHeader() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        if (!config.debugLogs()) return;
+        Component line = Component.literal(PREFIX + "nick ")
+                .append(Component.literal("#" + (config.activeIndex() + 1) + "/" + config.targets().size())
+                        .withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(": "))
+                .append(Component.literal(config.nick()).withStyle(ChatFormatting.YELLOW));
+        announce(line);
     }
 
     /**
@@ -693,12 +765,12 @@ public final class BotController {
     private static void exhausted() {
         if (hasUsableNextTarget()) {
             switchPending = true;
+            switchAt = System.currentTimeMillis();
             state = State.DISCONNECTED;
             begun = false;
             sendSpent = false;
             ChatWatcher.disarm();
             reconnectPending = false;
-            ProbeConfig.INSTANCE.save();
             return;
         }
 
@@ -750,16 +822,19 @@ public final class BotController {
         lastPassword = "";
         sendSpent = false;
         begun = true;
-        autoResume = true;
+        autoResume = false;
+        waitForStart = true;
         reconnectPending = false;
         ChatWatcher.disarm();
         SessionSwap.toOffline(config.nick());
-        announce("nick done. next nick: " + config.nick() + ", next password: " + config.passwords().get(0));
-        config.save();
+        announce("next nick: " + config.nick() + ", next password: " + config.passwords().get(0));
 
         // The nickname is part of the login handshake, so the old session has to go.
         Minecraft minecraft = Minecraft.getInstance();
         ClientPacketListener old = minecraft.getConnection();
+        AuthProbe.logger().info("AuthProbe: switching to nick #{} '{}' ({} passwords), old connection={}.",
+                config.activeIndex() + 1, config.nick(), config.passwordCount(), old != null);
+        long switchStarted = System.currentTimeMillis();
         state = State.CONNECTING;
         if (old != null) {
             minecraft.clearLevel();
@@ -771,7 +846,86 @@ public final class BotController {
             reconnectPending = true;
             reconnectAt = System.currentTimeMillis();
         }
+        AuthProbe.logger().info("AuthProbe: nick switch connect request done in {} ms.",
+                System.currentTimeMillis() - switchStarted);
         return true;
+    }
+
+    /**
+     * Checks whether a kick reason is about the nickname rather than the password.
+     *
+     * @param reason Kick or connect failure reason
+     * @return Whether the nickname itself was rejected
+     */
+    private static boolean isNickKick(String reason) {
+        return reason != null && !reason.isBlank() && PatternBank.matches(NICK_KICKS, reason);
+    }
+
+    /**
+     * Abandons the current nickname and queues the next one. Used for invalid names and
+     * "already online" kicks: spending the rest of this nick's passwords would be pointless.
+     *
+     * @param reason Kick reason
+     */
+    private static void abandonNick(String reason) {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        skippedTarget = config.activeIndex();
+        skippedReason = reason == null ? "" : reason;
+        ChatWatcher.disarm();
+        reconnectPending = false;
+        autoResume = false;
+        sendSpent = false;
+
+        String text = skippedReason.isEmpty() ? "nickname rejected" : skippedReason;
+        Component line = Component.literal(PREFIX + "nick ")
+                .append(Component.literal("#" + (skippedTarget + 1) + "/" + config.targets().size())
+                        .withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" ("))
+                .append(Component.literal(config.nick()).withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal(") skipped: "))
+                .append(Component.literal(text).withStyle(ChatFormatting.RED));
+        announce(line);
+
+        if (hasUsableNextTarget()) {
+            switchPending = true;
+            switchAt = System.currentTimeMillis();
+            state = State.DISCONNECTED;
+            return;
+        }
+
+        state = State.EXHAUSTED;
+        begun = false;
+        String message = "done. all nicknames failed (last: " + config.nick() + ")";
+        announce(message);
+        notify(message);
+        config.save();
+    }
+
+    /**
+     * Gets the target index the current run started from.
+     *
+     * @return Start target index
+     */
+    public static int runStartTarget() {
+        return runStartTarget;
+    }
+
+    /**
+     * Gets the target index abandoned because the nickname was rejected, or {@code -1}.
+     *
+     * @return Skipped target index
+     */
+    public static int skippedTarget() {
+        return skippedTarget;
+    }
+
+    /**
+     * Gets the reason the nickname was abandoned, empty when none.
+     *
+     * @return Skip reason
+     */
+    public static String skippedReason() {
+        return skippedReason;
     }
 
     /**
@@ -781,8 +935,11 @@ public final class BotController {
      */
     public static Component describeNextComponent() {
         ProbeConfig config = ProbeConfig.INSTANCE;
-        if (state == State.SUCCESS) return Component.translatable("authprobe.next.done");
-        if (passwordIndex < config.passwordCount() && !config.passwords().isEmpty()) {
+        if (state == State.SUCCESS || state == State.EXHAUSTED) {
+            return Component.translatable("authprobe.next.done");
+        }
+        boolean currentSkipped = skippedTarget == config.activeIndex();
+        if (!currentSkipped && passwordIndex < config.passwordCount() && !config.passwords().isEmpty()) {
             return Component.translatable("authprobe.next.step", config.nick(), config.passwords().get(passwordIndex));
         }
         for (int i = config.activeIndex() + 1; i < config.targets().size(); i++) {
@@ -819,6 +976,11 @@ public final class BotController {
         sendSpent = false;
         begun = false;
         switchPending = false;
+        runStartTarget = ProbeConfig.INSTANCE.activeIndex();
+        skippedTarget = -1;
+        skippedReason = "";
+        waitForStart = false;
+        switchAt = 0L;
     }
 
     /**

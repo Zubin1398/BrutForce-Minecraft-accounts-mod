@@ -34,15 +34,10 @@ public final class BotStatusScreen extends Screen {
         int rowOne = this.height - 56;
         int rowTwo = this.height - 30;
 
-        // Reconnect and continue from the current password.
+        // Reconnect and wait for .start/.go to continue from the current password.
         this.addRenderableWidget(Button.builder(Component.translatable("authprobe.status.continue"),
                         pressed -> BotController.resume())
-                .bounds(centerX - 148, rowOne, 144, 20).build());
-
-        // Skip this password and continue.
-        this.addRenderableWidget(Button.builder(Component.translatable("authprobe.status.next"),
-                        pressed -> BotController.next())
-                .bounds(centerX + 4, rowOne, 144, 20).build());
+                .bounds(centerX - 100, rowOne, 200, 20).build());
 
         // Change the proxy and reconnect.
         this.addRenderableWidget(Button.builder(Component.translatable("authprobe.status.proxy"), pressed -> {
@@ -102,6 +97,44 @@ public final class BotStatusScreen extends Screen {
         graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.target", config.nick(), config.address()),
                 centerX, y, 0xFF_FF_FF_FF);
         y += 13;
+
+        // Run report: started at, interrupted at, per-nick password counts.
+        int start = Math.max(0, BotController.runStartTarget());
+        int current = config.activeIndex();
+        int skipped = BotController.skippedTarget();
+        int interrupted = skipped >= 0 ? skipped : current;
+        int completed = Math.max(0, current - start);
+        boolean allDone = BotController.state() == BotController.State.EXHAUSTED && skipped < 0;
+        if (allDone) {
+            completed = Math.max(0, config.targets().size() - start);
+        }
+        graphics.drawCenteredString(this.font, Component.translatable(allDone
+                        ? "authprobe.status.run.done" : "authprobe.status.run",
+                completed, start + 1, interrupted + 1, config.targets().size()), centerX, y, 0xFF_88_CC_FF);
+        y += 12;
+        int first = Math.max(start, current - 5);
+        int lastIndex = current;
+        if (first > start) {
+            graphics.drawString(this.font, "...", panelLeft + 12, y, 0xFF_A0_A0_A0, false);
+            y += 10;
+        }
+        for (int i = first; i <= lastIndex; i++) {
+            var target = config.targets().get(i);
+            boolean wasSkipped = i == skipped;
+            int color = wasSkipped ? 0xFF_FF_66_66 : (allDone || i < current) ? 0xFF_88_FF_88 : 0xFF_FF_D7_00;
+            String status = Component.translatable(wasSkipped ? "authprobe.status.nick.skipped"
+                    : (allDone || i < current) ? "authprobe.status.nick.done" : "authprobe.status.nick.current").getString();
+            String line = Component.translatable("authprobe.status.nick.line",
+                    i + 1, target.nick(), target.passwordCount(), status).getString();
+            graphics.drawString(this.font, this.font.plainSubstrByWidth(line, panelWidth - 24),
+                    panelLeft + 12, y, color, false);
+            y += 10;
+        }
+        if (lastIndex < current) {
+            graphics.drawString(this.font, "...", panelLeft + 12, y, 0xFF_A0_A0_A0, false);
+            y += 10;
+        }
+        y += 3;
 
         // Position.
         graphics.drawCenteredString(this.font, BotController.describePositionComponent(), centerX, y, 0xFF_FF_FF_FF);
