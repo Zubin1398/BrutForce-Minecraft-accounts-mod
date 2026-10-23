@@ -6,16 +6,26 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import ru.an0n.authprobe.AuthProbe;
 import ru.an0n.authprobe.BotController;
 import ru.an0n.authprobe.ChatWatcher;
 import ru.an0n.authprobe.ProbeConfig;
 import ru.an0n.authprobe.ProbeTarget;
 import ru.an0n.authprobe.ServerConnector;
+import ru.an0n.authprobe.utils.NickImport;
 import ru.an0n.authprobe.utils.Nicks;
 import ru.an0n.authprobe.utils.PasswordList;
 
+import java.awt.FileDialog;
+import java.awt.Frame;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Main setup screen: target, nickname, password list, tuning knobs and the live chat pane.
@@ -77,6 +87,11 @@ public final class ProbeSetupScreen extends Screen {
      * Master mod toggle.
      */
     private Button modButton;
+
+    /**
+     * Start macro toggle.
+     */
+    private Button macroButton;
 
     /**
      * Option buttons.
@@ -221,49 +236,55 @@ public final class ProbeSetupScreen extends Screen {
                     if (!config.modEnabled() && BotController.armed()) BotController.stop();
                     this.refreshOptions();
                 }).bounds(optionX, optionY, optionWidth, 16).build());
+        this.macroButton = this.addRenderableWidget(Button.builder(Component.empty(),
+                pressed -> {
+                    config.macroEnabled(!config.macroEnabled());
+                    this.refreshOptions();
+                }).bounds(optionX, optionY + step, optionWidth, 16).build());
         this.modeButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.mode(config.mode().next());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 2, optionWidth, 16).build());
         this.delayButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.delayMs(nextOf(DELAYS, config.delayMs()));
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 2, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 3, optionWidth, 16).build());
         this.reconnectButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.reconnectDelayMs(nextOf(RECONNECTS, config.reconnectDelayMs()));
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 3, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 4, optionWidth, 16).build());
         this.autoStartButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.autoStart(!config.autoStart());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 4, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 5, optionWidth, 16).build());
         this.autoReconnectButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.autoReconnect(!config.autoReconnect());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 5, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 6, optionWidth, 16).build());
         this.debugButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.debugLogs(!config.debugLogs());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 6, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 7, optionWidth, 16).build());
         int proxyWidth = Math.max(40, optionWidth - 22);
         this.proxyButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.proxyEnabled(!config.proxyEnabled());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 7, proxyWidth, 16).build());
+                }).bounds(optionX, optionY + step * 8, proxyWidth, 16).build());
         this.proxyGearButton = this.addRenderableWidget(Button.builder(Component.literal("..."),
                         pressed -> {
                             this.saveFields();
                             this.minecraft.setScreen(new ProxyScreen(this));
                         })
-                .bounds(optionX + proxyWidth + 2, optionY + step * 7, 18, 16).build());
+                .bounds(optionX + proxyWidth + 2, optionY + step * 8, 18, 16).build());
         this.modButton.setTooltip(tooltip("authprobe.option.mod.tip"));
+        this.macroButton.setTooltip(tooltip("authprobe.option.macro.tip"));
         this.modeButton.setTooltip(tooltip("authprobe.option.mode.tip"));
         this.delayButton.setTooltip(tooltip("authprobe.option.delay.tip"));
         this.reconnectButton.setTooltip(tooltip("authprobe.option.reconnect.tip"));
@@ -276,8 +297,8 @@ public final class ProbeSetupScreen extends Screen {
 
         // Bottom row.
         int buttonY = this.height - 26;
-        int buttonWidth = Math.max(50, (this.width - 20 - 12) / 4);
-        int buttonX = (this.width - (buttonWidth * 4 + 12)) / 2;
+        int buttonWidth = Math.max(40, (this.width - 20 - 16) / 5);
+        int buttonX = (this.width - (buttonWidth * 5 + 16)) / 2;
         Button startButton = Button.builder(Component.translatable("authprobe.button.start"), pressed -> this.start())
                 .bounds(buttonX, buttonY, buttonWidth, 20).build();
         startButton.setTooltip(tooltip("authprobe.button.start.tip"));
@@ -288,15 +309,21 @@ public final class ProbeSetupScreen extends Screen {
         stopButton.setTooltip(tooltip("authprobe.button.stop.tip"));
         this.addRenderableWidget(stopButton);
 
+        Button importButton = Button.builder(Component.translatable("authprobe.button.import"),
+                        pressed -> this.importFile())
+                .bounds(buttonX + (buttonWidth + 4) * 2, buttonY, buttonWidth, 20).build();
+        importButton.setTooltip(tooltip("authprobe.button.import.tip"));
+        this.addRenderableWidget(importButton);
+
         Button patternsButton = Button.builder(Component.translatable("authprobe.button.patterns"), pressed -> {
                     this.saveFields();
                     this.minecraft.setScreen(new ProbePatternsScreen(this));
-                }).bounds(buttonX + (buttonWidth + 4) * 2, buttonY, buttonWidth, 20).build();
+                }).bounds(buttonX + (buttonWidth + 4) * 3, buttonY, buttonWidth, 20).build();
         patternsButton.setTooltip(tooltip("authprobe.button.patterns.tip"));
         this.addRenderableWidget(patternsButton);
 
         Button menuButton = Button.builder(Component.translatable("authprobe.button.menu"), pressed -> this.onClose())
-                .bounds(buttonX + (buttonWidth + 4) * 3, buttonY, buttonWidth, 20).build();
+                .bounds(buttonX + (buttonWidth + 4) * 4, buttonY, buttonWidth, 20).build();
         menuButton.setTooltip(tooltip("authprobe.button.menu.tip"));
         this.addRenderableWidget(menuButton);
 
@@ -362,7 +389,7 @@ public final class ProbeSetupScreen extends Screen {
                 this.nickValid ? 0xFF_88_FF_88 : 0xFF_FF_66_66, false);
 
         // Live chat pane.
-        int paneTop = 22 + 17 * 8 + 16;
+        int paneTop = 22 + 17 * 9 + 16;
         int paneBottom = this.height - 50;
         graphics.drawString(this.font, Component.translatable("authprobe.chat"), rightX, paneTop - 14, 0xFF_FF_D7_00, false);
         if (paneBottom > paneTop + 6) {
@@ -407,7 +434,7 @@ public final class ProbeSetupScreen extends Screen {
         int columnWidth = Math.max(80, (this.width - 30) / 2);
         int rightX = leftX + columnWidth + 10;
         int optionWidth = Math.max(60, this.width - rightX - 10);
-        int paneTop = 22 + 17 * 8 + 16;
+        int paneTop = 22 + 17 * 9 + 16;
         int paneBottom = this.height - 50;
         if (paneBottom > paneTop + 6
                 && mouseX >= rightX && mouseX <= rightX + optionWidth
@@ -533,6 +560,57 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
     }
 
     /**
+     * Opens a native file dialog, imports the selected .txt and replaces the profiles.
+     */
+    private void importFile() {
+        try {
+            FileDialog dialog = new FileDialog((Frame) null,
+                    Component.translatable("authprobe.import.title").getString(), FileDialog.LOAD);
+            dialog.setFilenameFilter((dir, name) -> name.toLowerCase(Locale.ROOT).endsWith(".txt"));
+            dialog.setFile("*.txt");
+            dialog.setMultipleMode(false);
+            dialog.setAlwaysOnTop(true);
+            dialog.setVisible(true);
+            String file = dialog.getFile();
+            String directory = dialog.getDirectory();
+            dialog.dispose();
+            if (file == null || directory == null) return;
+
+            List<ProbeTarget> imported = NickImport.parse(readText(Paths.get(directory, file)));
+            if (imported.isEmpty()) {
+                BotController.announce("import: no nicknames found");
+                return;
+            }
+
+            ProbeConfig.INSTANCE.replaceTargets(imported);
+            ProbeConfig.INSTANCE.save();
+            this.loadTargetFields();
+            int passwords = 0;
+            for (ProbeTarget target : imported) passwords += target.passwordCount();
+            BotController.announce("imported " + imported.size() + " nicks, " + passwords + " passwords");
+            AuthProbe.logger().info("AuthProbe: imported {} nicks and {} passwords from {}.",
+                    imported.size(), passwords, file);
+        } catch (Throwable throwable) {
+            AuthProbe.logger().warn("AuthProbe: import failed.", throwable);
+            BotController.announce("import failed: " + throwable.getMessage());
+        }
+    }
+
+    /**
+     * Reads UTF-8, falling back to windows-1251 when the file is not valid UTF-8.
+     *
+     * @param path File path
+     * @return File text
+     * @throws Exception When the file cannot be read
+     */
+    private static String readText(Path path) throws Exception {
+        byte[] bytes = Files.readAllBytes(path);
+        String text = new String(bytes, StandardCharsets.UTF_8);
+        if (text.indexOf('\uFFFD') >= 0) text = new String(bytes, Charset.forName("windows-1251"));
+        return text;
+    }
+
+    /**
      * Saves the fields and moves to another target.
      *
      * @param delta Direction
@@ -581,6 +659,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
     private void refreshOptions() {
         ProbeConfig config = ProbeConfig.INSTANCE;
         this.modButton.setMessage(Component.translatable("authprobe.option.mod", onOff(config.modEnabled())));
+        this.macroButton.setMessage(Component.translatable("authprobe.option.macro", onOff(config.macroEnabled())));
         this.modeButton.setMessage(Component.translatable("authprobe.option.mode", config.mode().display()));
         this.delayButton.setMessage(Component.translatable("authprobe.option.delay", formatDelay(config.delayMs())));
         this.reconnectButton.setMessage(Component.translatable("authprobe.option.reconnect", config.reconnectDelayMs() / 1000));

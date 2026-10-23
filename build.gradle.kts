@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "ru.an0n.authprobe"
-version = "1.2.0+1.20.1-forge"
+version = "1.3.0+1.20.1-forge"
 description = "AuthProbe - client-side login probe for offline-mode Minecraft servers."
 
 val mcv = "1.20.1"

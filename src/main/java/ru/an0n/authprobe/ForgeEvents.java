@@ -162,6 +162,9 @@ public final class ForgeEvents {
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
 
+        // Drain the macro even while the mod is off, so an old click cannot fire later.
+        KeyBindings.handleMacro();
+
         if (!ProbeConfig.INSTANCE.modEnabled()) {
             // Normal play: no state machine, no disconnect-screen swap, no chat capture.
             if (BotController.armed()) BotController.stop();

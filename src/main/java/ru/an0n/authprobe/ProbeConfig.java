@@ -122,6 +122,11 @@ public final class ProbeConfig {
     private boolean modEnabled = true;
 
     /**
+     * Whether the assigned macro key may trigger .start/.go.
+     */
+    private boolean macroEnabled;
+
+    /**
      * Chat patterns.
      */
     private PatternBank patterns = PatternBank.defaults();
@@ -205,6 +210,21 @@ public final class ProbeConfig {
         this.targets.add(new ProbeTarget("", List.of()));
         this.activeIndex = this.targets.size() - 1;
         this.dirty = true;
+    }
+
+    /**
+     * Replaces every target with imported profiles and selects the first one.
+     *
+     * @param imported Imported targets
+     * @return Whether the list was replaced
+     */
+    public boolean replaceTargets(List<ProbeTarget> imported) {
+        if (imported == null || imported.isEmpty()) return false;
+        this.targets.clear();
+        this.targets.addAll(imported);
+        this.activeIndex = 0;
+        this.dirty = true;
+        return true;
     }
 
     /**
@@ -545,6 +565,25 @@ public final class ProbeConfig {
     }
 
     /**
+     * Checks whether the start macro is enabled.
+     *
+     * @return Whether the keybind may start probing
+     */
+    public boolean macroEnabled() {
+        return this.macroEnabled;
+    }
+
+    /**
+     * Enables or disables the start macro.
+     *
+     * @param value New value
+     */
+    public void macroEnabled(boolean value) {
+        this.macroEnabled = value;
+        this.dirty = true;
+    }
+
+    /**
      * Gets the chat patterns.
      *
      * @return Patterns
@@ -622,6 +661,7 @@ public final class ProbeConfig {
             autoReconnect(data.autoReconnect);
             debugLogs(data.debugLogs);
             modEnabled(data.modEnabled);
+            macroEnabled(data.macroEnabled);
 
             PatternBank defaults = PatternBank.defaults();
             List<String> success = data.success == null ? new ArrayList<>(defaults.success()) : new ArrayList<>(data.success);
@@ -683,6 +723,7 @@ public final class ProbeConfig {
         data.autoReconnect = this.autoReconnect;
         data.debugLogs = this.debugLogs;
         data.modEnabled = this.modEnabled;
+        data.macroEnabled = this.macroEnabled;
         data.success = this.patterns.success();
         data.fail = this.patterns.fail();
         data.kick = this.patterns.kick();
@@ -787,7 +828,12 @@ boolean debugLogs;
         /**
          * Master mod switch.
          */
-        boolean modEnabled = true;
+boolean modEnabled = true;
+
+        /**
+         * Start macro toggle.
+         */
+        boolean macroEnabled;
 
         /**
          * Success patterns.
