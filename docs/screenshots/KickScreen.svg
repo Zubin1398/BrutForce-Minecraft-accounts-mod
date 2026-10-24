@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-label="Схема экрана кика AuthProbe 1.5.4: текущий ник, прокси, отчёт по никам и действиям">
+  <defs>
+    <linearGradient id="kbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070d14"/>
+      <stop offset="1" stop-color="#0d2033"/>
+    </linearGradient>
+    <pattern id="kgrid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#142838" stroke-width="1" opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="620" rx="24" fill="url(#kbg)"/>
+  <rect width="1200" height="620" rx="24" fill="url(#kgrid)"/>
+
+  <rect x="250" y="24" width="700" height="520" rx="10" fill="#0a141e" stroke="#3c5a78"/>
+  <rect x="250" y="24" width="700" height="4" rx="2" fill="#f87171"/>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="middle">
+    <text x="600" y="64" font-size="22" fill="#ff6666">AuthProbe - отключён</text>
+    <text x="600" y="96" fill="#c0c0c0">Состояние: <tspan fill="#ffffff">отключён</tspan></text>
+    <text x="600" y="118" fill="#ffffff">Текущий ник: Alex @ play.example.com:25565</text>
+    <text x="600" y="140" fill="#cc99ff">Прокси: №3 / №10</text>
+    <text x="600" y="164" fill="#88ccff">Пройдено ников: 1 · начал с #1 · прерван на #3 из 4</text>
+
+    <g text-anchor="start" font-family="Consolas, monospace" font-size="13" font-weight="400">
+      <text x="420" y="188" fill="#88ff88">#1 Steve — 12 паролей · пройден</text>
+      <text x="420" y="204" fill="#ffd700">#2 Alex — 5 паролей · текущий</text>
+      <text x="420" y="220" fill="#ff6666">#3 Mike — 8 паролей · пропущен: уже онлайн</text>
+    </g>
+
+    <text x="600" y="246" fill="#ffffff">пароль #4/12 (последний: qwerty), отправлено 4</text>
+    <text x="600" y="268" fill="#88ccff">Далее: Mike / 123456</text>
+    <text x="600" y="290" fill="#ffd000">Последний пароль: qwerty</text>
+    <text x="600" y="316" fill="#b0b0b0">Причина: На вашем IP-адресе обнаружено</text>
+    <text x="600" y="330" fill="#b0b0b0">использование VPN или прокси.</text>
+    <text x="600" y="354" fill="#88ff88">Авто-продолжение через 7 с</text>
+  </g>
+
+  <g font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">
+    <rect x="500" y="562" width="200" height="30" rx="4" fill="#1f4d36" stroke="#34d399"/>
+    <text x="600" y="582" text-anchor="middle" fill="#55ff88">Продолжить</text>
+
+    <rect x="452" y="594" width="144" height="20" rx="4" fill="#10281f" stroke="#34d399"/>
+    <text x="524" y="608" text-anchor="middle" font-size="12" fill="#9af0c4">Сменить прокси</text>
+
+    <rect x="600" y="594" width="70" height="20" rx="4" fill="#4a1f25" stroke="#f87171"/>
+    <text x="635" y="608" text-anchor="middle" font-size="12" fill="#ff7777">Стоп</text>
+
+    <rect x="674" y="594" width="70" height="20" rx="4" fill="#1b2a38" stroke="#3c5a78"/>
+    <text x="709" y="608" text-anchor="middle" font-size="12" fill="#e6f1ff">В меню</text>
+  </g>
+</svg>

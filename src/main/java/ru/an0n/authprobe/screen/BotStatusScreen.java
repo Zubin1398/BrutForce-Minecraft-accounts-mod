@@ -1,5 +1,6 @@
 package ru.an0n.authprobe.screen;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -7,7 +8,6 @@ import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
 import ru.an0n.authprobe.BotController;
 import ru.an0n.authprobe.ProbeConfig;
-import ru.an0n.authprobe.proxy.ProxyEntry;
 import ru.an0n.authprobe.proxy.ProxyTunnel;
 
 import java.util.Locale;
@@ -35,25 +35,27 @@ public final class BotStatusScreen extends Screen {
         int rowTwo = this.height - 30;
 
         // Reconnect and wait for .start/.go to continue from the current password.
-        this.addRenderableWidget(Button.builder(Component.translatable("authprobe.status.continue"),
+        this.addRenderableWidget(Button.builder(
+                        Component.translatable("authprobe.status.continue").withStyle(ChatFormatting.GREEN),
                         pressed -> BotController.resume())
                 .bounds(centerX - 100, rowOne, 200, 20).build());
 
         // Change the proxy and reconnect.
-        this.addRenderableWidget(Button.builder(Component.translatable("authprobe.status.proxy"), pressed -> {
+        this.addRenderableWidget(Button.builder(
+                        Component.translatable("authprobe.status.proxy").withStyle(ChatFormatting.AQUA), pressed -> {
                     if (!ProbeConfig.INSTANCE.rotateProxy()) {
                         BotController.announce("no proxies configured");
                         return;
                     }
                     ProxyTunnel.closeAll();
-                    ProxyEntry entry = ProxyEntry.parse(ProbeConfig.INSTANCE.currentProxyLine());
-                    BotController.announce("proxy: " + (entry == null ? ProbeConfig.INSTANCE.currentProxyLine() : entry.display()));
+                    BotController.announceProxyChange();
                     BotController.resume();
                 })
                 .bounds(centerX - 148, rowTwo, 144, 20).build());
 
         // Stop the run.
-        this.addRenderableWidget(Button.builder(Component.translatable("authprobe.status.stop"),
+        this.addRenderableWidget(Button.builder(
+                        Component.translatable("authprobe.status.stop").withStyle(ChatFormatting.RED),
                         pressed -> BotController.stop())
                 .bounds(centerX + 4, rowTwo, 70, 20).build());
 
@@ -97,6 +99,13 @@ public final class BotStatusScreen extends Screen {
         graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.target", config.nick(), config.address()),
                 centerX, y, 0xFF_FF_FF_FF);
         y += 13;
+
+        // Proxy position, when routing is enabled.
+        if (config.proxyEnabled() && !config.proxies().isEmpty()) {
+            graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.proxyCounter",
+                    config.proxyIndex() + 1, config.proxies().size()), centerX, y, 0xFF_CC99FF);
+            y += 12;
+        }
 
         // Run report: started at, interrupted at, per-nick password counts.
         int start = Math.max(0, BotController.runStartTarget());
@@ -154,9 +163,9 @@ public final class BotStatusScreen extends Screen {
         // Disconnect reason.
         String reason = BotController.kickReason();
         if (!reason.isEmpty()) {
-            graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.reason", reason),
-                    centerX, y, 0xFF_B0_B0_B0);
-            y += 13;
+            y = this.drawWrappedCentered(graphics,
+                    Component.translatable("authprobe.status.reason", reason).getString(),
+                    centerX, y, panelWidth - 24, 0xFF_B0_B0_B0, this.height - 86);
         }
 
         // Reconnect countdown.
@@ -167,8 +176,47 @@ public final class BotStatusScreen extends Screen {
         }
     }
 
-    @Override
+@Override
     public boolean isPauseScreen() {
         return false;
+    }
+
+    /**
+     * Draws text centered, wrapping on spaces and hard-cutting when a word is too long.
+     *
+     * @param graphics Drawing graphics
+     * @param text     Text
+     * @param centerX  Center X
+     * @param y        Start Y
+     * @param width    Max line width
+     * @param color    Text color
+     * @param maxY     Last Y that may be used
+     * @return Y after the last drawn line
+     */
+    private int drawWrappedCentered(GuiGraphics graphics, String text, int centerX, int y,
+                                    int width, int color, int maxY) {
+        for (String paragraph : text.split("\\R", -1)) {
+            if (paragraph.isEmpty()) {
+                y += 9;
+                continue;
+            }
+            String rest = paragraph;
+            while (!rest.isEmpty()) {
+                String line = this.font.plainSubstrByWidth(rest, width);
+                if (line.isEmpty()) line = rest.substring(0, 1);
+                if (line.length() < rest.length()) {
+                    int space = line.lastIndexOf(' ');
+                    if (space > 0) line = line.substring(0, space);
+                }
+                if (y > maxY) {
+                    graphics.drawCenteredString(this.font, "...", centerX, y, color);
+                    return y + 9;
+                }
+                graphics.drawCenteredString(this.font, line, centerX, y, color);
+                y += 10;
+                rest = rest.substring(line.length()).stripLeading();
+            }
+        }
+        return y;
     }
 }

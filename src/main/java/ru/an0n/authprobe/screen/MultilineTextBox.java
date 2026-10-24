@@ -269,6 +269,10 @@ final class MultilineTextBox extends AbstractWidget {
     @Override
     public void onRelease(double mouseX, double mouseY) {
         this.dragging = false;
+        if (this.anchorLine == this.cursorLine && this.anchorCol == this.cursorCol) {
+            this.anchorLine = -1;
+            this.anchorBefore = false;
+        }
     }
 
     @Override
@@ -547,6 +551,7 @@ final class MultilineTextBox extends AbstractWidget {
         if (parts.size() == 1) {
             this.lines.set(this.cursorLine, head + parts.get(0) + tail);
             this.cursorCol += parts.get(0).length();
+            this.anchorLine = -1;
             this.afterChange();
             return;
         }
@@ -557,6 +562,7 @@ final class MultilineTextBox extends AbstractWidget {
         this.lines.add(this.cursorLine + last, parts.get(last) + tail);
         this.cursorLine += last;
         this.cursorCol = parts.get(last).length();
+        this.anchorLine = -1;
         this.afterChange();
     }
 
@@ -570,6 +576,7 @@ final class MultilineTextBox extends AbstractWidget {
             this.deleteSelection();
             return;
         }
+        if (!select) this.anchorLine = -1;
         this.cursorLine = clamp(this.cursorLine, 0, this.lines.size() - 1);
         this.cursorCol = clamp(this.cursorCol, 0, this.lines.get(this.cursorLine).length());
         if (this.cursorCol > 0) {
@@ -597,6 +604,7 @@ final class MultilineTextBox extends AbstractWidget {
             this.deleteSelection();
             return;
         }
+        if (!select) this.anchorLine = -1;
         this.cursorLine = clamp(this.cursorLine, 0, this.lines.size() - 1);
         this.cursorCol = clamp(this.cursorCol, 0, this.lines.get(this.cursorLine).length());
         String line = this.lines.get(this.cursorLine);
@@ -697,6 +705,9 @@ final class MultilineTextBox extends AbstractWidget {
             } else {
                 this.anchorLine = -1;
             }
+        } else {
+            this.anchorLine = -1;
+            this.anchorBefore = false;
         }
         this.cursorLine = clamp(line, 0, this.lines.size() - 1);
         this.cursorCol = clamp(col, 0, this.lines.get(this.cursorLine).length());

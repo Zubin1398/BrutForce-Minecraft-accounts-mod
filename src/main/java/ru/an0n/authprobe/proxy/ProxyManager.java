@@ -29,7 +29,7 @@ public final class ProxyManager {
      */
     public static ProxyEntry active() {
         ProbeConfig config = ProbeConfig.INSTANCE;
-        if (!config.proxyEnabled() || config.proxies().isEmpty()) return null;
+        if (!config.modEnabled() || !config.proxyEnabled() || config.proxies().isEmpty()) return null;
         return ProxyEntry.parse(config.currentProxyLine());
     }
 

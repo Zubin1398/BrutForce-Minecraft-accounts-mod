@@ -7,6 +7,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.chat.Component;
 import ru.an0n.authprobe.proxy.ProxyEntry;
+import ru.an0n.authprobe.proxy.ProxyTunnel;
 import ru.an0n.authprobe.utils.Nicks;
 
 import java.util.List;
@@ -129,6 +130,12 @@ public final class BotController {
     private static boolean waitForStart;
 
     /**
+     * True after the automatic proxy rotation reached the end of the list. Automatic
+     * reconnects are paused until the operator rotates manually or starts again.
+     */
+    private static boolean proxyRotationBlocked;
+
+    /**
      * Whether the current password was already put on the wire and has not been accounted
      * for by a verdict yet. Used so an automatic reconnect does not spend a second try on
      * a password that already went out.
@@ -163,6 +170,17 @@ public final class BotController {
             "failed to verify username", "failed to verify authentication",
             "уже на сервере", "уже в игре", "уже авторизован", "уже находится", "ник уже",
             "ник занят", "ник в онлайне", "неверный ник", "неправильный ник", "недопустимый ник"
+    );
+
+    /**
+     * Reasons that usually mean the server filtered the IP/proxy or the connection timed out.
+     */
+    private static final List<String> PROXY_KICKS = List.of(
+            "ip ban", "ip-ban", "banned your ip", "your ip", "ip address",
+            "ip-адрес", "ip адрес", "ваш ip", "бан по ip",
+            "vpn", "proxy", "прокси", "suspicious", "blacklist", "blacklisted", "blocked",
+            "timeout", "timed out", "connection timed out",
+            "превышено время ожидания", "время ожидания", "тайм-аут", "таймаут", "заблокирован"
     );
 
     /**
@@ -386,6 +404,7 @@ public final class BotController {
         }
         boolean resume = begun && passwordIndex < config.passwordCount();
         waitForStart = false;
+        proxyRotationBlocked = false;
         if (!resume) {
             passwordIndex = 0;
             lastPassword = "";
@@ -410,6 +429,7 @@ public final class BotController {
     public static void resume() {
         ProbeConfig config = ProbeConfig.INSTANCE;
         waitForStart = true;
+        proxyRotationBlocked = false;
         autoResume = false;
         reconnectPending = false;
         sendSpent = false;
@@ -486,6 +506,9 @@ public final class BotController {
             abandonNick(kickReason);
             return;
         }
+        if (shouldRotateProxy(kickReason)) {
+            rotateProxyForKick();
+        }
         if (wasSent) {
             advance();
             if (passwordIndex >= ProbeConfig.INSTANCE.passwordCount()) {
@@ -495,7 +518,7 @@ public final class BotController {
         }
 
         // Queue the automatic reconnect.
-        if (ProbeConfig.INSTANCE.autoReconnect()) {
+        if (ProbeConfig.INSTANCE.autoReconnect() && !proxyRotationBlocked) {
             reconnectPending = true;
             reconnectAt = System.currentTimeMillis() + ProbeConfig.INSTANCE.reconnectDelayMs();
         } else {
@@ -524,12 +547,15 @@ public final class BotController {
             abandonNick(kickReason);
             return;
         }
+        if (shouldRotateProxy(kickReason)) {
+            rotateProxyForKick();
+        }
 
         AuthProbe.logger().warn("AuthProbe: connect failed. reason: {}", kickReason.isEmpty() ? "(none)" : kickReason);
         announce("connect failed." + (kickReason.isEmpty() ? "" : " " + kickReason));
 
         // Queue the automatic reconnect.
-        if (ProbeConfig.INSTANCE.autoReconnect()) {
+        if (ProbeConfig.INSTANCE.autoReconnect() && !proxyRotationBlocked) {
             reconnectPending = true;
             reconnectAt = System.currentTimeMillis() + ProbeConfig.INSTANCE.reconnectDelayMs();
         } else {
@@ -763,6 +789,16 @@ public final class BotController {
      * Announces that every password was spent.
      */
     private static void exhausted() {
+        if (proxyRotationBlocked) {
+            state = State.DISCONNECTED;
+            begun = false;
+            sendSpent = false;
+            reconnectPending = false;
+            switchPending = false;
+            ChatWatcher.disarm();
+            ProbeConfig.INSTANCE.saveIfDirty();
+            return;
+        }
         if (hasUsableNextTarget()) {
             switchPending = true;
             switchAt = System.currentTimeMillis();
@@ -859,6 +895,67 @@ public final class BotController {
      */
     private static boolean isNickKick(String reason) {
         return reason != null && !reason.isBlank() && PatternBank.matches(NICK_KICKS, reason);
+    }
+
+    /**
+     * Checks whether auto-reconnect should rotate the proxy for this kick.
+     *
+     * @param reason Kick reason
+     * @return Whether to rotate the proxy
+     */
+    private static boolean shouldRotateProxy(String reason) {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        return !proxyRotationBlocked
+                && config.autoReconnect()
+                && config.proxyEnabled()
+                && !config.proxies().isEmpty()
+                && reason != null
+                && !reason.isBlank()
+                && PatternBank.matches(PROXY_KICKS, reason);
+    }
+
+    /**
+     * Rotates to the next proxy before an automatic reconnect, never wrapping to the first.
+     *
+     * @return Whether a next proxy was available
+     */
+    private static boolean rotateProxyForKick() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        if (!config.rotateProxyNoWrap()) {
+            proxyRotationBlocked = true;
+            reconnectPending = false;
+            switchPending = false;
+            state = State.DISCONNECTED;
+            ChatWatcher.disarm();
+            Component stopped = Component.literal(PREFIX + "прокси закончились (№")
+                    .append(Component.literal(String.valueOf(config.proxyIndex() + 1)).withStyle(ChatFormatting.AQUA))
+                    .append(Component.literal("/" + config.proxies().size()
+                            + "). Авто-реконнект остановлен. Нажми «Сменить прокси» для нового круга."));
+            announce(stopped);
+            notify(stopped);
+            ProbeConfig.INSTANCE.saveIfDirty();
+            return false;
+        }
+
+        proxyRotationBlocked = false;
+        ProxyTunnel.closeAll();
+        announceProxyChange();
+        return true;
+    }
+
+    /**
+     * Announces the active proxy in local chat and a toast.
+     */
+    public static void announceProxyChange() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        ProxyEntry entry = ProxyEntry.parse(config.currentProxyLine());
+        String display = entry == null ? "?" : entry.display();
+        Component message = Component.literal(PREFIX + "Прокси: №" + (config.proxyIndex() + 1)
+                        + "/" + config.proxies().size())
+                .withStyle(ChatFormatting.AQUA)
+                .append(Component.literal(" " + display).withStyle(ChatFormatting.YELLOW));
+        announce(message);
+        notify(message);
     }
 
     /**
@@ -981,6 +1078,7 @@ public final class BotController {
         skippedReason = "";
         waitForStart = false;
         switchAt = 0L;
+        proxyRotationBlocked = false;
     }
 
     /**

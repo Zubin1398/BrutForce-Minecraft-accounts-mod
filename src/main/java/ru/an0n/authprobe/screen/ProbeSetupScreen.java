@@ -1,16 +1,19 @@
 package ru.an0n.authprobe.screen;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
 import ru.an0n.authprobe.BotController;
 import ru.an0n.authprobe.ChatWatcher;
 import ru.an0n.authprobe.ProbeConfig;
 import ru.an0n.authprobe.ProbeTarget;
 import ru.an0n.authprobe.ServerConnector;
+import ru.an0n.authprobe.proxy.ProxyTunnel;
 import ru.an0n.authprobe.utils.Nicks;
 import ru.an0n.authprobe.utils.PasswordList;
 
@@ -69,6 +72,11 @@ public final class ProbeSetupScreen extends Screen {
     private Button removeNickButton;
 
     /**
+     * Clear every profile button.
+     */
+    private Button clearProfilesButton;
+
+    /**
      * Password box.
      */
     private MultilineTextBox passwordBox;
@@ -77,6 +85,11 @@ public final class ProbeSetupScreen extends Screen {
      * Master mod toggle.
      */
     private Button modButton;
+
+    /**
+     * Start button, disabled while the mod is off.
+     */
+    private Button startButton;
 
     /**
      * Start macro toggle.
@@ -144,6 +157,16 @@ public final class ProbeSetupScreen extends Screen {
     private int chatScroll;
 
     /**
+     * Whether the chat scrollbar thumb is being dragged.
+     */
+    private boolean chatScrollbarDragging;
+
+    /**
+     * Grab offset inside the scrollbar thumb.
+     */
+    private double chatScrollbarGrab;
+
+    /**
      * Creates a new setup screen.
      *
      * @param parent Parent screen
@@ -175,7 +198,7 @@ public final class ProbeSetupScreen extends Screen {
         this.addRenderableWidget(this.addressBox);
 
         // Nickname with a target selector.
-        int nickWidth = Math.max(40, columnWidth - 82);
+        int nickWidth = Math.max(30, columnWidth - 102);
         this.nickBox = new EditBox(this.font, leftX, 64, nickWidth, 18, Component.translatable("authprobe.nick"));
         this.nickBox.setHint(Component.translatable("authprobe.nick.hint"));
         this.nickBox.setMaxLength(16);
@@ -196,10 +219,15 @@ public final class ProbeSetupScreen extends Screen {
         this.removeNickButton = this.addRenderableWidget(Button.builder(Component.literal("-"),
                         pressed -> this.removeTarget())
                 .bounds(nickButtonsX + 60, 64, 18, 18).build());
+        this.clearProfilesButton = this.addRenderableWidget(Button.builder(
+                        Component.literal("X").withStyle(ChatFormatting.RED),
+                        pressed -> this.clearProfiles())
+                .bounds(nickButtonsX + 80, 64, 18, 18).build());
         this.prevNickButton.setTooltip(tooltip("authprobe.nick.prev.tip"));
         this.nextNickButton.setTooltip(tooltip("authprobe.nick.next.tip"));
         this.addNickButton.setTooltip(tooltip("authprobe.nick.add.tip"));
         this.removeNickButton.setTooltip(tooltip("authprobe.nick.remove.tip"));
+        this.clearProfilesButton.setTooltip(tooltip("authprobe.nick.clear.tip"));
 
         // Passwords.
         int passwordTop = 96;
@@ -223,7 +251,10 @@ public final class ProbeSetupScreen extends Screen {
                 pressed -> {
                     config.modEnabled(!config.modEnabled());
                     ChatWatcher.setEnabled(config.modEnabled());
-                    if (!config.modEnabled() && BotController.armed()) BotController.stop();
+                    if (!config.modEnabled()) {
+                        ProxyTunnel.closeAll();
+                        if (BotController.armed()) BotController.stop();
+                    }
                     this.refreshOptions();
                 }).bounds(optionX, optionY, optionWidth, 16).build());
         this.macroButton = this.addRenderableWidget(Button.builder(Component.empty(),
@@ -255,24 +286,24 @@ public final class ProbeSetupScreen extends Screen {
                 pressed -> {
                     config.autoReconnect(!config.autoReconnect());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 6, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 8, optionWidth, 16).build());
         this.debugButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.debugLogs(!config.debugLogs());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 7, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 6, optionWidth, 16).build());
         int proxyWidth = Math.max(40, optionWidth - 22);
         this.proxyButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.proxyEnabled(!config.proxyEnabled());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 8, proxyWidth, 16).build());
+                }).bounds(optionX, optionY + step * 7, proxyWidth, 16).build());
         this.proxyGearButton = this.addRenderableWidget(Button.builder(Component.literal("..."),
                         pressed -> {
                             this.saveFields();
                             this.minecraft.setScreen(new ProxyScreen(this));
                         })
-                .bounds(optionX + proxyWidth + 2, optionY + step * 8, 18, 16).build());
+                .bounds(optionX + proxyWidth + 2, optionY + step * 7, 18, 16).build());
         this.modButton.setTooltip(tooltip("authprobe.option.mod.tip"));
         this.macroButton.setTooltip(tooltip("authprobe.option.macro.tip"));
         this.modeButton.setTooltip(tooltip("authprobe.option.mode.tip"));
@@ -289,12 +320,17 @@ public final class ProbeSetupScreen extends Screen {
         int buttonY = this.height - 26;
         int buttonWidth = Math.max(40, (this.width - 20 - 16) / 5);
         int buttonX = (this.width - (buttonWidth * 5 + 16)) / 2;
-        Button startButton = Button.builder(Component.translatable("authprobe.button.start"), pressed -> this.start())
+        this.startButton = Button.builder(
+                        Component.translatable("authprobe.button.start").withStyle(ChatFormatting.GREEN),
+                        pressed -> this.start())
                 .bounds(buttonX, buttonY, buttonWidth, 20).build();
-        startButton.setTooltip(tooltip("authprobe.button.start.tip"));
-        this.addRenderableWidget(startButton);
+        this.startButton.setTooltip(tooltip("authprobe.button.start.tip"));
+        this.startButton.active = config.modEnabled();
+        this.addRenderableWidget(this.startButton);
 
-        Button stopButton = Button.builder(Component.translatable("authprobe.button.stop"), pressed -> BotController.stop())
+        Button stopButton = Button.builder(
+                        Component.translatable("authprobe.button.stop").withStyle(ChatFormatting.RED),
+                        pressed -> BotController.stop())
                 .bounds(buttonX + (buttonWidth + 4), buttonY, buttonWidth, 20).build();
         stopButton.setTooltip(tooltip("authprobe.button.stop.tip"));
         this.addRenderableWidget(stopButton);
@@ -419,13 +455,47 @@ public final class ProbeSetupScreen extends Screen {
     }
 
     @Override
+    public boolean keyPressed(int key, int scan, int mods) {
+        // Make Enter reach the multiline editor even if the screen focus drifted.
+        if ((key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER)
+                && this.passwordBox != null && this.passwordBox.isFocused()) {
+            this.setFocused(this.passwordBox);
+            return this.passwordBox.keyPressed(key, scan, mods);
+        }
+        return super.keyPressed(key, scan, mods);
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && this.startChatScrollDrag(mouseX, mouseY)) return true;
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (this.chatScrollbarDragging) {
+            this.dragChatScrollbar(mouseY);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (this.chatScrollbarDragging) {
+            this.chatScrollbarDragging = false;
+            this.setDragging(false);
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
-        int leftX = 10;
-        int columnWidth = Math.max(80, (this.width - 30) / 2);
-        int rightX = leftX + columnWidth + 10;
-        int optionWidth = Math.max(60, this.width - rightX - 10);
-        int paneTop = 22 + 17 * 9 + 16;
-        int paneBottom = this.height - 50;
+        int rightX = this.chatPaneLeft();
+        int optionWidth = this.chatPaneWidth();
+        int paneTop = this.chatPaneTop();
+        int paneBottom = this.chatPaneBottom();
         if (paneBottom > paneTop + 6
                 && mouseX >= rightX && mouseX <= rightX + optionWidth
                 && mouseY >= paneTop && mouseY <= paneBottom) {
@@ -437,6 +507,100 @@ public final class ProbeSetupScreen extends Screen {
         }
         // Other widgets (the password editor) handle their own wheel.
         return super.mouseScrolled(mouseX, mouseY, delta);
+    }
+
+    /**
+     * Starts dragging the chat scrollbar.
+     *
+     * @param mouseX Mouse X
+     * @param mouseY Mouse Y
+     * @return Whether the drag started
+     */
+    private boolean startChatScrollDrag(double mouseX, double mouseY) {
+        int left = this.chatPaneLeft();
+        int width = this.chatPaneWidth();
+        int top = this.chatPaneTop();
+        int bottom = this.chatPaneBottom();
+        if (bottom <= top + 6) return false;
+        if (mouseX < left + width - 7 || mouseX > left + width) return false;
+        if (mouseY < top || mouseY > bottom) return false;
+
+        int capacity = Math.max(1, (bottom - top) / 9);
+        int total = this.visualLines(ChatWatcher.snapshot(), width).size();
+        int maxScroll = Math.max(0, total - capacity);
+        if (maxScroll <= 0) return false;
+
+        int track = bottom - top;
+        int barHeight = Math.max(8, track * capacity / total);
+        int barY = top + (track - barHeight) * (maxScroll - this.chatScroll) / maxScroll;
+        this.chatScrollbarGrab = mouseY >= barY && mouseY <= barY + barHeight
+                ? mouseY - barY
+                : barHeight / 2.0D;
+        this.chatScrollbarDragging = true;
+        this.setDragging(true);
+        this.dragChatScrollbar(mouseY);
+        return true;
+    }
+
+    /**
+     * Moves the chat scroll from the scrollbar position.
+     *
+     * @param mouseY Mouse Y
+     */
+    private void dragChatScrollbar(double mouseY) {
+        int width = this.chatPaneWidth();
+        int top = this.chatPaneTop();
+        int bottom = this.chatPaneBottom();
+        int capacity = Math.max(1, (bottom - top) / 9);
+        int total = this.visualLines(ChatWatcher.snapshot(), width).size();
+        int maxScroll = Math.max(0, total - capacity);
+        if (maxScroll <= 0) return;
+
+        int track = bottom - top;
+        int barHeight = Math.max(8, track * capacity / total);
+        int travel = track - barHeight;
+        if (travel <= 0) return;
+
+        double position = Math.max(0.0D, Math.min(travel, mouseY - top - this.chatScrollbarGrab));
+        this.chatScroll = (int) Math.round((1.0D - position / travel) * maxScroll);
+        this.chatScroll = Math.max(0, Math.min(maxScroll, this.chatScroll));
+    }
+
+    /**
+     * Gets the chat pane left.
+     *
+     * @return X
+     */
+    private int chatPaneLeft() {
+        int columnWidth = Math.max(80, (this.width - 30) / 2);
+        return 10 + columnWidth + 10;
+    }
+
+    /**
+     * Gets the chat pane width.
+     *
+     * @return Width
+     */
+    private int chatPaneWidth() {
+        return Math.max(60, this.width - this.chatPaneLeft() - 10);
+    }
+
+    /**
+     * Gets the chat pane top.
+     *
+     * @return Top
+     */
+    private int chatPaneTop() {
+        return 22 + 17 * 9 + 16;
+    }
+
+    /**
+     * Gets the chat pane bottom.
+     *
+     * @return Bottom
+     */
+    private int chatPaneBottom() {
+        return this.height - 50;
     }
 
     /**
@@ -467,12 +631,12 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         graphics.disableScissor();
 
         if (maxScroll > 0) {
-            int barX = x + width - 2;
+            int barX = x + width - 4;
             int track = bottom - top;
             int barHeight = Math.max(8, track * capacity / lines.size());
             int barY = top + (track - barHeight) * (maxScroll - this.chatScroll) / maxScroll;
-            graphics.fill(barX, top, barX + 1, bottom, 0x40_FF_FF_FF);
-            graphics.fill(barX, barY, barX + 1, barY + barHeight, 0xFF_88_CC_FF);
+            graphics.fill(barX, top, barX + 4, bottom, 0x40_FF_FF_FF);
+            graphics.fill(barX, barY, barX + 4, barY + barHeight, 0xFF_88_CC_FF);
         }
     }
 
@@ -582,6 +746,19 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
     }
 
     /**
+     * Deletes every profile and its passwords, leaving one empty profile.
+     */
+    private void clearProfiles() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        config.replaceTargets(List.of(new ProbeTarget("", List.of())));
+        config.rememberLast("", "");
+        config.save();
+        this.loadTargetFields();
+        this.passwordCount = 0;
+        this.nickValid = false;
+    }
+
+    /**
      * Loads the active target into the text fields.
      */
     private void loadTargetFields() {
@@ -605,7 +782,10 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.autoStartButton.setMessage(Component.translatable("authprobe.option.autostart", onOff(config.autoStart())));
         this.autoReconnectButton.setMessage(Component.translatable("authprobe.option.autoreconnect", onOff(config.autoReconnect())));
         this.debugButton.setMessage(Component.translatable("authprobe.option.debug", onOff(config.debugLogs())));
-        this.proxyButton.setMessage(Component.translatable("authprobe.option.proxy", onOff(config.proxyEnabled())));
+        this.proxyButton.setMessage(Component.translatable("authprobe.option.proxy",
+                onOff(config.modEnabled() && config.proxyEnabled())));
+        this.proxyButton.active = config.modEnabled();
+        if (this.startButton != null) this.startButton.active = config.modEnabled();
     }
 
     /**
@@ -630,7 +810,8 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
      * @return Component
      */
     private static Component onOff(boolean value) {
-        return Component.translatable(value ? "authprobe.on" : "authprobe.off");
+        return Component.translatable(value ? "authprobe.on" : "authprobe.off")
+                .withStyle(value ? ChatFormatting.GREEN : ChatFormatting.RED);
     }
 
     /**

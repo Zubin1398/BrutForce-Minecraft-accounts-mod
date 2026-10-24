@@ -136,6 +136,7 @@ public final class ProxyTunnel {
         try (ServerSocket server = listener) {
             server.setSoTimeout(15_000);
             try (Socket client = server.accept(); Socket remote = open(proxy, target, 10_000)) {
+                AuthProbe.logger().info("AuthProbe: proxy tunnel established via {} to {}.", proxy.display(), target);
                 pump(client, remote);
             }
         } catch (IOException exception) {

@@ -369,6 +369,22 @@ public final class ProbeConfig {
     }
 
     /**
+     * Moves to the next proxy without wrapping. Used by automatic rotation so an exhausted
+     * list cannot loop forever; the manual "change proxy" button still wraps.
+     *
+     * @return Whether a next proxy existed
+     */
+    public boolean rotateProxyNoWrap() {
+        if (this.proxies.isEmpty()) return false;
+        int next = proxyIndex() + 1;
+        if (next >= this.proxies.size()) return false;
+        this.proxyIndex = next;
+        this.proxyEnabled = true;
+        this.dirty = true;
+        return true;
+    }
+
+    /**
      * Gets the raw active proxy line.
      *
      * @return Proxy line, empty if the list is empty

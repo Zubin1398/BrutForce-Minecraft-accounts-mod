@@ -10,6 +10,7 @@ import ru.an0n.authprobe.BotController;
 import ru.an0n.authprobe.ProbeConfig;
 import ru.an0n.authprobe.ProbeTarget;
 import ru.an0n.authprobe.utils.NickImport;
+import org.lwjgl.glfw.GLFW;
 
 import java.awt.FileDialog;
 import java.awt.Frame;
@@ -49,6 +50,11 @@ public final class ImportScreen extends Screen {
     private EditBox pathBox;
 
     /**
+     * Manual paste area, alternative to a file path.
+     */
+    private MultilineTextBox textBox;
+
+    /**
      * Last error, empty when none.
      */
     private String error = "";
@@ -74,6 +80,15 @@ public final class ImportScreen extends Screen {
         this.pathBox.setMaxLength(1024);
         this.addRenderableWidget(this.pathBox);
 
+        int textTop = 106;
+        int textHeight = Math.max(30, this.height - textTop - 34);
+        this.textBox = new MultilineTextBox(this.font, 20, textTop, this.width - 40, textHeight,
+                Component.translatable("authprobe.import.paste"));
+        this.textBox.setHint(Component.translatable("authprobe.import.paste.hint").getString());
+        this.textBox.setMaxLines(4096);
+        this.textBox.setMaxLength(1_000_000);
+        this.addRenderableWidget(this.textBox);
+
         int buttonY = this.height - 26;
         int buttonWidth = Math.max(70, (this.width - 40 - 8) / 3);
         int buttonX = (this.width - (buttonWidth * 3 + 8)) / 2;
@@ -96,6 +111,16 @@ public final class ImportScreen extends Screen {
     }
 
     @Override
+    public boolean keyPressed(int key, int scan, int mods) {
+        if ((key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER)
+                && this.textBox != null && this.textBox.isFocused()) {
+            this.setFocused(this.textBox);
+            return this.textBox.keyPressed(key, scan, mods);
+        }
+        return super.keyPressed(key, scan, mods);
+    }
+
+    @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
         this.renderBackground(graphics);
         super.render(graphics, mouseX, mouseY, delta);
@@ -107,10 +132,10 @@ public final class ImportScreen extends Screen {
         graphics.drawString(this.font, Component.translatable("authprobe.import.path"),
                 20, 48, 0xFF_FF_D7_00, false);
         if (!this.error.isEmpty()) {
-            graphics.drawString(this.font, this.error, 20, 86, 0xFFFF6666, false);
+            graphics.drawString(this.font, this.error, 20, 84, 0xFFFF6666, false);
         }
-        graphics.drawString(this.font, Component.translatable("authprobe.import.example"),
-                20, 108, 0xFF_88CCFF, false);
+        graphics.drawString(this.font, Component.translatable("authprobe.import.paste"),
+                20, 96, 0xFF_FF_D7_00, false);
     }
 
     @Override
@@ -131,9 +156,10 @@ public final class ImportScreen extends Screen {
         try {
             String[] selected = chooseFile(this.title.getString());
             if (selected != null) {
-                this.pathBox.setValue(Paths.get(selected[0], selected[1]).toString());
+                Path path = Paths.get(selected[0], selected[1]);
+                this.pathBox.setValue(path.toString());
                 this.error = "";
-                this.importFromField();
+                this.importPath(path);
             }
         } catch (Throwable throwable) {
             AuthProbe.logger().warn("AuthProbe: file dialog failed.", throwable);
@@ -142,34 +168,57 @@ public final class ImportScreen extends Screen {
     }
 
     /**
-     * Reads and applies the file from the path field.
+     * Imports pasted text when present, otherwise the file from the path field.
      */
     private void importFromField() {
+        String pasted = this.textBox.getValue();
+        if (!pasted.isBlank()) {
+            this.apply(NickImport.parse(pasted), "pasted text");
+            return;
+        }
+
         String raw = this.pathBox.getValue().trim();
         if (raw.isEmpty()) {
             this.error = Component.translatable("authprobe.import.empty").getString();
             return;
         }
+        this.importPath(Paths.get(raw));
+    }
+
+    /**
+     * Reads and applies a file.
+     *
+     * @param path File path
+     */
+    private void importPath(Path path) {
         try {
-            Path path = Paths.get(raw);
-            List<ProbeTarget> imported = NickImport.parse(readText(path));
-            if (imported.isEmpty()) {
-                this.error = Component.translatable("authprobe.import.none").getString();
-                return;
-            }
-            ProbeConfig.INSTANCE.replaceTargets(imported);
-            ProbeConfig.INSTANCE.save();
-            int passwords = 0;
-            for (ProbeTarget target : imported) passwords += target.passwordCount();
-            BotController.announce("imported " + imported.size() + " nicks, " + passwords + " passwords");
-            AuthProbe.logger().info("AuthProbe: imported {} nicks and {} passwords from {}.",
-                    imported.size(), passwords, path);
-            assert this.minecraft != null;
-            this.minecraft.setScreen(this.parent);
+            this.apply(NickImport.parse(readText(path)), path.toString());
         } catch (Throwable throwable) {
             AuthProbe.logger().warn("AuthProbe: import failed.", throwable);
             this.error = Component.translatable("authprobe.import.failed", String.valueOf(throwable.getMessage())).getString();
         }
+    }
+
+    /**
+     * Applies parsed profiles.
+     *
+     * @param imported Imported targets
+     * @param source   Source description for the log
+     */
+    private void apply(List<ProbeTarget> imported, String source) {
+        if (imported.isEmpty()) {
+            this.error = Component.translatable("authprobe.import.none").getString();
+            return;
+        }
+        ProbeConfig.INSTANCE.replaceTargets(imported);
+        ProbeConfig.INSTANCE.save();
+        int passwords = 0;
+        for (ProbeTarget target : imported) passwords += target.passwordCount();
+        BotController.announce("imported " + imported.size() + " nicks, " + passwords + " passwords");
+        AuthProbe.logger().info("AuthProbe: imported {} nicks and {} passwords from {}.",
+                imported.size(), passwords, source);
+        assert this.minecraft != null;
+        this.minecraft.setScreen(this.parent);
     }
 
     /**

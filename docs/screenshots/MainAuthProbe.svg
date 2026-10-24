@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-label="Схема интерфейса AuthProbe с кнопкой Мод: вкл/выкл">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-label="Схема интерфейса AuthProbe 1.5.4: профили, макрос, авто-реконнект, прокси и чат">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#070d14"/>
@@ -9,9 +9,9 @@
     </pattern>
   </defs>
 
-  <rect width="1200" height="640" rx="24" fill="url(#bg)"/>
-  <rect width="1200" height="640" rx="24" fill="url(#grid)"/>
-  <text x="600" y="42" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#ffd700">AuthProbe</text>
+  <rect width="1200" height="700" rx="24" fill="url(#bg)"/>
+  <rect width="1200" height="700" rx="24" fill="url(#grid)"/>
+  <text x="600" y="42" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#ffd700">AuthProbe 1.5.4</text>
 
   <g font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">
     <!-- left column -->
@@ -20,13 +20,14 @@
     <text x="58" y="112" font-family="Consolas, monospace" font-weight="400" fill="#e6f1ff">play.example.com:25565</text>
 
     <text x="48" y="150" fill="#ffd700">Ник (2/3)</text>
-    <rect x="48" y="158" width="438" height="30" rx="4" fill="#050b11" stroke="#3c5a78"/>
+    <rect x="48" y="158" width="418" height="30" rx="4" fill="#050b11" stroke="#3c5a78"/>
     <text x="58" y="178" font-family="Consolas, monospace" font-weight="400" fill="#e6f1ff">Alex</text>
     <g font-family="Consolas, monospace" font-size="15">
-      <rect x="494" y="158" width="26" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="507" y="178" text-anchor="middle" fill="#e6f1ff">&lt;</text>
-      <rect x="524" y="158" width="26" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="537" y="178" text-anchor="middle" fill="#e6f1ff">&gt;</text>
-      <rect x="554" y="158" width="26" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="567" y="178" text-anchor="middle" fill="#9af0c4">+</text>
-      <rect x="584" y="158" width="26" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="597" y="178" text-anchor="middle" fill="#fca5a5">-</text>
+      <rect x="474" y="158" width="26" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="487" y="178" text-anchor="middle" fill="#e6f1ff">&lt;</text>
+      <rect x="504" y="158" width="26" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="517" y="178" text-anchor="middle" fill="#e6f1ff">&gt;</text>
+      <rect x="534" y="158" width="26" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="547" y="178" text-anchor="middle" fill="#9af0c4">+</text>
+      <rect x="564" y="158" width="26" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="577" y="178" text-anchor="middle" fill="#fca5a5">-</text>
+      <rect x="594" y="158" width="26" height="30" rx="4" fill="#3a1820" stroke="#f87171"/><text x="607" y="178" text-anchor="middle" fill="#ff6666">X</text>
     </g>
 
     <text x="48" y="216" fill="#ffd700">Пароли (по одному в строке)</text>
@@ -48,42 +49,43 @@
     <!-- right column -->
     <text x="628" y="84" fill="#ffd700">Параметры</text>
     <g font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">
-      <rect x="628" y="92" width="524" height="26" rx="4" fill="#10281f" stroke="#34d399"/>
-      <text x="638" y="110" fill="#9af0c4">Мод: вкл</text>
-
-      <rect x="628" y="122" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="140" fill="#e6f1ff">Вход: /l &lt;пароль&gt;</text>
-      <rect x="628" y="152" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="170" fill="#e6f1ff">Пауза: 200 мс</text>
-      <rect x="628" y="182" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="200" fill="#e6f1ff">Реконнект: 8 с</text>
-      <rect x="628" y="212" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="230" fill="#e6f1ff">Авто-старт: выкл</text>
-      <rect x="628" y="242" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="260" fill="#e6f1ff">Авто-реконнект: вкл</text>
-      <rect x="628" y="272" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="290" fill="#e6f1ff">Debug-логи: выкл</text>
-      <rect x="628" y="302" width="496" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="320" fill="#e6f1ff">Прокси: вкл</text>
+      <rect x="628" y="92" width="524" height="26" rx="4" fill="#10281f" stroke="#34d399"/><text x="638" y="110" fill="#e6f1ff">Мод: <tspan fill="#55ff88">вкл</tspan></text>
+      <rect x="628" y="122" width="524" height="26" rx="4" fill="#2a161b" stroke="#7a3b45"/><text x="638" y="140" fill="#e6f1ff">Макрос .start/.go: <tspan fill="#ff7777">выкл</tspan></text>
+      <rect x="628" y="152" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="170" fill="#e6f1ff">Вход: /l &lt;пароль&gt;</text>
+      <rect x="628" y="182" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="200" fill="#e6f1ff">Пауза: 200 мс</text>
+      <rect x="628" y="212" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="230" fill="#e6f1ff">Реконнект: 8 с</text>
+      <rect x="628" y="242" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="260" fill="#e6f1ff">Авто-старт: <tspan fill="#ff7777">выкл</tspan></text>
+      <rect x="628" y="272" width="524" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="638" y="290" fill="#e6f1ff">Debug-логи: <tspan fill="#ff7777">выкл</tspan></text>
+      <rect x="628" y="302" width="496" height="26" rx="4" fill="#10281f" stroke="#34d399"/><text x="638" y="320" fill="#e6f1ff">Прокси: <tspan fill="#55ff88">вкл</tspan></text>
       <rect x="1130" y="302" width="22" height="26" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="1141" y="320" text-anchor="middle" fill="#e6f1ff">...</text>
+      <rect x="628" y="332" width="524" height="26" rx="4" fill="#10281f" stroke="#34d399"/><text x="638" y="350" fill="#e6f1ff">Авто-реконнект: <tspan fill="#55ff88">вкл</tspan></text>
     </g>
 
-    <text x="628" y="356" fill="#ffd700">Чат сервера</text>
-    <rect x="624" y="364" width="532" height="150" rx="4" fill="#050b11" stroke="#3c5a78"/>
+    <text x="628" y="386" fill="#ffd700">Чат сервера</text>
+    <rect x="624" y="394" width="532" height="200" rx="4" fill="#050b11" stroke="#3c5a78"/>
     <g font-family="Consolas, monospace" font-size="13" font-weight="400">
-      <text x="636" y="386" fill="#e0e0e0">[Server] Добро пожаловать на сервер!</text>
-      <text x="636" y="402" fill="#e0e0e0">[Server] Пожалуйста, авторизуйтесь:</text>
-      <text x="636" y="418" fill="#e0e0e0">/login &lt;пароль&gt; — вход, /reg — регистрация.</text>
-      <text x="636" y="438" fill="#e0e0e0">[Server] Длинное сообщение автоматически переносится</text>
-      <text x="636" y="454" fill="#e0e0e0">по ширине панели, а история прокручивается</text>
-      <text x="636" y="470" fill="#e0e0e0">колесом мыши — ползунок справа.</text>
-      <text x="636" y="490" fill="#ffd166">[AuthProbe] attempt 2/5: &lt;123456&gt;</text>
+      <text x="636" y="416" fill="#e0e0e0">[Server] Добро пожаловать на сервер!</text>
+      <text x="636" y="432" fill="#e0e0e0">[Server] Пожалуйста, авторизуйтесь:</text>
+      <text x="636" y="448" fill="#e0e0e0">/login &lt;пароль&gt; — вход, /reg — регистрация.</text>
+      <text x="636" y="468" fill="#e0e0e0">[Server] Длинное сообщение автоматически переносится</text>
+      <text x="636" y="484" fill="#e0e0e0">по ширине панели, а история прокручивается</text>
+      <text x="636" y="500" fill="#e0e0e0">колесом или перетаскиванием ползунка.</text>
+      <text x="636" y="520" fill="#ffd166">[AuthProbe] attempt 2/5: &lt;123456&gt;</text>
+      <text x="636" y="540" fill="#88ccff">[AuthProbe] Прокси: №2/10 socks5://...</text>
     </g>
-    <rect x="1148" y="364" width="4" height="150" rx="2" fill="#1f3346"/>
-    <rect x="1148" y="424" width="4" height="48" rx="2" fill="#88ccff"/>
+    <rect x="1148" y="394" width="4" height="200" rx="2" fill="#1f3346"/>
+    <rect x="1148" y="438" width="4" height="56" rx="2" fill="#88ccff"/>
 
-    <rect x="1060" y="520" width="92" height="22" rx="4" fill="#1b2a38" stroke="#3c5a78"/>
-    <text x="1106" y="535" text-anchor="middle" font-size="12" fill="#e6f1ff">Очистить чат</text>
+    <rect x="1060" y="604" width="92" height="22" rx="4" fill="#1b2a38" stroke="#3c5a78"/>
+    <text x="1106" y="619" text-anchor="middle" font-size="12" fill="#e6f1ff">Очистить чат</text>
 
     <!-- bottom row -->
     <g font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">
-      <rect x="140" y="596" width="200" height="30" rx="4" fill="#1f4d36" stroke="#34d399"/><text x="240" y="616" text-anchor="middle" fill="#c9ffe2">Начать</text>
-      <rect x="352" y="596" width="200" height="30" rx="4" fill="#4a1f25" stroke="#f87171"/><text x="452" y="616" text-anchor="middle" fill="#ffd1d1">Стоп</text>
-      <rect x="564" y="596" width="200" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="664" y="616" text-anchor="middle" fill="#e6f1ff">Шаблоны</text>
-      <rect x="776" y="596" width="200" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="876" y="616" text-anchor="middle" fill="#e6f1ff">В меню</text>
+      <rect x="76" y="650" width="196" height="30" rx="4" fill="#1f4d36" stroke="#34d399"/><text x="174" y="670" text-anchor="middle" fill="#55ff88">Начать</text>
+      <rect x="284" y="650" width="196" height="30" rx="4" fill="#4a1f25" stroke="#f87171"/><text x="382" y="670" text-anchor="middle" fill="#ff7777">Стоп</text>
+      <rect x="492" y="650" width="196" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="590" y="670" text-anchor="middle" fill="#e6f1ff">Импорт .txt</text>
+      <rect x="700" y="650" width="196" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="798" y="670" text-anchor="middle" fill="#e6f1ff">Шаблоны</text>
+      <rect x="908" y="650" width="196" height="30" rx="4" fill="#1b2a38" stroke="#3c5a78"/><text x="1006" y="670" text-anchor="middle" fill="#e6f1ff">В меню</text>
     </g>
   </g>
 </svg>

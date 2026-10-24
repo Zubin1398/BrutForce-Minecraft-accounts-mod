@@ -53,6 +53,11 @@ public final class ProxyScreen extends Screen {
     private final List<Result> results = Collections.synchronizedList(new ArrayList<>());
 
     /**
+     * First visible result line.
+     */
+    private int resultScroll;
+
+    /**
      * Check executor.
      */
     private ExecutorService executor;
@@ -150,15 +155,25 @@ public final class ProxyScreen extends Screen {
         Component summary = this.checking
                 ? Component.translatable("authprobe.proxy.checking", this.done.get(), this.total.get())
                 : Component.translatable("authprobe.proxy.summary", ok, fail);
-        graphics.drawString(this.font, summary, resultsX, 34, 0xFF_FF_FF_FF, false);
+graphics.drawString(this.font, summary, resultsX, 34, 0xFF_FF_FF_FF, false);
+
+        String address = ProbeConfig.INSTANCE.address();
+        graphics.drawString(this.font, Component.translatable("authprobe.proxy.target",
+                        address.isBlank() ? Component.translatable("authprobe.proxy.target.none") : address),
+                resultsX, 46, 0xFF_A0A0A0, false);
 
         if (!this.error.isEmpty()) {
-            graphics.drawString(this.font, Component.translatable(this.errorKey), resultsX, 46, 0xFF_FF_66_66, false);
+            graphics.drawString(this.font, Component.translatable(this.errorKey), resultsX, 56, 0xFF_FF_66_66, false);
         }
 
-        int y = 58;
+        int y = 68;
         int bottom = this.height - 32;
-        for (Result result : snapshot) {
+        int rows = Math.max(1, (bottom - y) / 10);
+        int maxScroll = Math.max(0, snapshot.size() - rows);
+        this.resultScroll = Math.max(0, Math.min(this.resultScroll, maxScroll));
+        int start = this.resultScroll;
+        for (int i = start; i < snapshot.size(); i++) {
+            Result result = snapshot.get(i);
             if (y > bottom) break;
             String prefix = result.ok()
                     ? Component.translatable("authprobe.proxy.ok", result.millis()).getString()
@@ -169,6 +184,32 @@ public final class ProxyScreen extends Screen {
                     result.ok() ? 0xFF_66_FF_66 : 0xFF_FF_66_66, false);
             y += 10;
         }
+
+        if (maxScroll > 0) {
+            int barX = resultsX + resultsWidth - 3;
+            int track = bottom - 68;
+            int barHeight = Math.max(8, track * rows / snapshot.size());
+            int barY = 68 + (track - barHeight) * this.resultScroll / maxScroll;
+            graphics.fill(barX, 68, barX + 3, bottom, 0x40_FF_FF_FF);
+            graphics.fill(barX, barY, barX + 3, barY + barHeight, 0xFF_88_CC_FF);
+        }
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        int boxWidth = Math.max(120, (this.width - 30) * 55 / 100);
+        int resultsX = 10 + boxWidth + 10;
+        int resultsWidth = Math.max(60, this.width - resultsX - 10);
+        int top = 68;
+        int bottom = this.height - 32;
+        if (mouseX >= resultsX && mouseX <= resultsX + resultsWidth && mouseY >= top && mouseY <= bottom) {
+            int rows = Math.max(1, (bottom - top) / 10);
+            int maxScroll = Math.max(0, this.results.size() - rows);
+            this.resultScroll = Math.max(0, Math.min(maxScroll,
+                    this.resultScroll - (int) Math.signum(delta)));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, delta);
     }
 
     @Override
@@ -191,6 +232,7 @@ public final class ProxyScreen extends Screen {
         if (this.checking) return;
         this.save(); // Persist the pasted list before spending time on it.
         this.results.clear();
+        this.resultScroll = 0;
         this.error = "";
         this.errorKey = "";
 
@@ -273,6 +315,7 @@ public final class ProxyScreen extends Screen {
         }
         this.box.setValue(String.join("\n", kept));
         this.results.clear();
+        this.resultScroll = 0;
         this.error = "";
         this.errorKey = "";
     }

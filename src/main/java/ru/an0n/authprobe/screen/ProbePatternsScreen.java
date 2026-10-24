@@ -4,6 +4,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
 import ru.an0n.authprobe.PatternBank;
 import ru.an0n.authprobe.ProbeConfig;
 
@@ -111,6 +112,19 @@ public final class ProbePatternsScreen extends Screen {
     public void onClose() {
         assert this.minecraft != null;
         this.minecraft.setScreen(this.parent);
+    }
+
+    @Override
+    public boolean keyPressed(int key, int scan, int mods) {
+        if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
+            for (MultilineTextBox box : List.of(this.successBox, this.failBox, this.kickBox)) {
+                if (box != null && box.isFocused()) {
+                    this.setFocused(box);
+                    return box.keyPressed(key, scan, mods);
+                }
+            }
+        }
+        return super.keyPressed(key, scan, mods);
     }
 
     @Override
