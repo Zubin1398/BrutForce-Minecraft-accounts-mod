@@ -76,6 +76,26 @@ public final class ProbeSetupScreen extends Screen {
     private EditBox nickBox;
 
     /**
+     * Server navigation and list buttons.
+     */
+    private Button serverPrevButton;
+
+    /**
+     * Next server button.
+     */
+    private Button serverNextButton;
+
+    /**
+     * Add server button.
+     */
+    private Button serverAddButton;
+
+    /**
+     * Remove server button.
+     */
+    private Button serverRemoveButton;
+
+    /**
      * Target navigation and list buttons.
      */
     private Button prevNickButton;
@@ -225,8 +245,9 @@ public final class ProbeSetupScreen extends Screen {
         int columnWidth = Math.max(80, (this.width - 30) / 2);
         int rightX = leftX + columnWidth + 10;
 
-        // Address.
-        this.addressBox = new EditBox(this.font, leftX, 32, columnWidth, 18, Component.translatable("authprobe.address"));
+        // Address with a server selector.
+        int addressWidth = Math.max(40, columnWidth - 82);
+        this.addressBox = new EditBox(this.font, leftX, 32, addressWidth, 18, Component.translatable("authprobe.address"));
         this.addressBox.setHint(Component.translatable("authprobe.address.hint"));
         this.addressBox.setMaxLength(256);
         this.addressBox.setValue(config.address());
@@ -235,6 +256,24 @@ public final class ProbeSetupScreen extends Screen {
             this.addressValid = ServerConnector.isValidAddress(value);
         });
         this.addRenderableWidget(this.addressBox);
+
+        int serverButtonsX = leftX + addressWidth + 2;
+        this.serverPrevButton = this.addRenderableWidget(Button.builder(Component.literal("<"),
+                        pressed -> this.switchServer(-1))
+                .bounds(serverButtonsX, 32, 18, 18).build());
+        this.serverNextButton = this.addRenderableWidget(Button.builder(Component.literal(">"),
+                        pressed -> this.switchServer(1))
+                .bounds(serverButtonsX + 20, 32, 18, 18).build());
+        this.serverAddButton = this.addRenderableWidget(Button.builder(Component.literal("+"),
+                        pressed -> this.addServer())
+                .bounds(serverButtonsX + 40, 32, 18, 18).build());
+        this.serverRemoveButton = this.addRenderableWidget(Button.builder(Component.literal("-"),
+                        pressed -> this.removeServer())
+                .bounds(serverButtonsX + 60, 32, 18, 18).build());
+        this.serverPrevButton.setTooltip(tooltip("authprobe.server.prev.tip"));
+        this.serverNextButton.setTooltip(tooltip("authprobe.server.next.tip"));
+        this.serverAddButton.setTooltip(tooltip("authprobe.server.add.tip"));
+        this.serverRemoveButton.setTooltip(tooltip("authprobe.server.remove.tip"));
 
         // Nickname with a target selector.
         int nickWidth = Math.max(30, columnWidth - 102);
@@ -451,7 +490,8 @@ public final class ProbeSetupScreen extends Screen {
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 6, 0xFF_FF_D7_00);
 
         // Field labels.
-        graphics.drawString(this.font, Component.translatable("authprobe.address"), leftX, 22, 0xFF_FF_D7_00, false);
+        graphics.drawString(this.font, Component.translatable("authprobe.address.slot",
+                config.activeServer() + 1, config.serverCount()), leftX, 22, 0xFF_FF_D7_00, false);
         Component slot = Component.translatable("authprobe.nick.slot",
                 config.activeIndex() + 1, config.targets().size());
         graphics.drawString(this.font, slot, leftX, 54, 0xFF_FF_D7_00, false);
@@ -836,6 +876,62 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
     }
 
     /**
+     * Saves the fields and moves to another server.
+     *
+     * @param delta Direction
+     */
+    private void switchServer(int delta) {
+        if (this.serverLocked()) return;
+        this.saveFields();
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        boolean moved = delta < 0 ? config.previousServer() : config.nextServer();
+        if (moved) this.loadServerFields();
+    }
+
+    /**
+     * Adds an empty server and switches to it.
+     */
+    private void addServer() {
+        if (this.serverLocked()) return;
+        this.saveFields();
+        ProbeConfig.INSTANCE.addServer();
+        this.loadServerFields();
+    }
+
+    /**
+     * Removes the active server, keeping at least one.
+     */
+    private void removeServer() {
+        if (this.serverLocked()) return;
+        this.saveFields();
+        ProbeConfig.INSTANCE.removeActiveServer();
+        this.loadServerFields();
+    }
+
+    /**
+     * Blocks server switching while the probe owns the session: the address under a live run
+     * must not change.
+     *
+     * @return Whether the action was blocked
+     */
+    private boolean serverLocked() {
+        if (!BotController.armed()) return false;
+        BotController.announce("останови прогон, чтобы сменить сервер");
+        return true;
+    }
+
+    /**
+     * Loads the active server into the fields.
+     */
+    private void loadServerFields() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        this.addressBox.setValue(config.address());
+        this.addressValid = ServerConnector.isValidAddress(config.address());
+        this.loadTargetFields();
+        this.refreshOptions();
+    }
+
+    /**
      * Loads the active target into the text fields.
      */
     private void loadTargetFields() {
@@ -861,7 +957,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         if (!target.hasSkip()) return;
         int x = leftX + this.font.width(slot) + 10;
         int maxWidth = Math.max(20, leftX + columnWidth - x - 14);
-        int color = target.skipIsInvalid() ? 0xFF_FF_66_66 : 0xFF_FF_AA_33;
+        int color = target.skipIsInvalid() || target.isTwoFactor() ? 0xFF_FF_66_66 : 0xFF_FF_AA_33;
         String text = this.font.plainSubstrByWidth(skipMarkText(target).getString(), maxWidth);
         graphics.drawString(this.font, text, x, 54, color, false);
     }
@@ -893,6 +989,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
      */
     private static Component skipMarkText(ProbeTarget target) {
         if (target.skipIsInvalid()) return Component.translatable("authprobe.skip.invalid");
+        if (target.isTwoFactor()) return Component.translatable("authprobe.skip.2fa");
         String when = SKIP_TIME.format(Instant.ofEpochMilli(target.skipAt()));
         return Component.translatable("authprobe.skip.online", when);
     }
@@ -916,6 +1013,13 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
                 onOff(config.modEnabled() && config.proxyEnabled())));
         this.proxyButton.active = config.modEnabled();
         this.refreshSkipButton();
+
+        // Server switching is locked while the probe owns the session.
+        boolean canSwitch = !BotController.armed();
+        this.serverPrevButton.active = canSwitch && config.activeServer() > 0;
+        this.serverNextButton.active = canSwitch && config.activeServer() + 1 < config.serverCount();
+        this.serverAddButton.active = canSwitch;
+        this.serverRemoveButton.active = canSwitch && config.serverCount() > 1;
 
         // The pane filter only matters while debug logs are on.
         if (this.logsOnlyButton != null) {

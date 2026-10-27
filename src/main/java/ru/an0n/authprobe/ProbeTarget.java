@@ -26,6 +26,11 @@ public record ProbeTarget(String nick, List<String> passwords, String skipReason
     public static final String KIND_INVALID = "invalid";
 
     /**
+     * The account needs a two-factor confirmation before the login can finish.
+     */
+    public static final String KIND_2FA = "2fa";
+
+    /**
      * Creates a target without a skip mark.
      *
      * @param nick      Nickname
@@ -60,6 +65,15 @@ public record ProbeTarget(String nick, List<String> passwords, String skipReason
      */
     public boolean skipIsInvalid() {
         return KIND_INVALID.equals(this.skipKind);
+    }
+
+    /**
+     * Checks whether the skip mark means a two-factor confirmation is required.
+     *
+     * @return Whether the mark is a 2FA mark
+     */
+    public boolean isTwoFactor() {
+        return KIND_2FA.equals(this.skipKind);
     }
 
     /**

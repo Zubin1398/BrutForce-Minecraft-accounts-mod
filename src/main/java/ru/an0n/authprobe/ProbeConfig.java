@@ -19,7 +19,7 @@ import java.util.List;
  * Deliberately mutable and single-instance: the UI edits it in place, and the
  * controller reads it every tick.
  *
- * <p>Settings, nicknames, their password lists, the pattern banks and the skip marks persist
+ * <p>Servers, nicknames, their password lists, the pattern banks and the skip marks persist
  * to {@code config/authprobe.json} in plain text. No encryption is applied by design.
  *
  * @author AN0N
@@ -41,19 +41,14 @@ public final class ProbeConfig {
     private boolean dirty;
 
     /**
-     * Target server address.
+     * Servers, each with its own nickname profiles. Always holds at least one entry.
      */
-    private String address = "";
+    private final List<ProbeServer> servers = new ArrayList<>(List.of(new ProbeServer("")));
 
     /**
-     * Targets. The probe drives {@code targets[activeIndex]}.
+     * Index of the server currently edited and probed.
      */
-    private final List<ProbeTarget> targets = new ArrayList<>(List.of(new ProbeTarget("", List.of())));
-
-    /**
-     * Index of the target currently edited and probed.
-     */
-    private int activeIndex;
+    private int activeServer;
 
     /**
      * Last nickname a password was sent for, persisted for the crash report line.
@@ -159,125 +154,207 @@ public final class ProbeConfig {
     }
 
     /**
-     * Gets the target address.
+     * Gets the servers.
+     *
+     * @return Servers
+     */
+    public List<ProbeServer> servers() {
+        return this.servers;
+    }
+
+    /**
+     * Gets the index of the server being edited and probed.
+     *
+     * @return Active server index
+     */
+    public int activeServer() {
+        return clamp(this.activeServer, 0, this.servers.size() - 1);
+    }
+
+    /**
+     * Sets the server being edited and probed, clamped into range.
+     *
+     * @param index New index
+     */
+    public void activeServer(int index) {
+        this.activeServer = clamp(index, 0, this.servers.size() - 1);
+        this.dirty = true;
+    }
+
+    /**
+     * Gets the amount of servers.
+     *
+     * @return Server count
+     */
+    public int serverCount() {
+        return this.servers.size();
+    }
+
+    /**
+     * Gets the server being edited and probed.
+     *
+     * @return Active server
+     */
+    public ProbeServer server() {
+        return this.servers.get(activeServer());
+    }
+
+    /**
+     * Adds an empty server and makes it active.
+     */
+    public void addServer() {
+        this.servers.add(new ProbeServer(""));
+        this.activeServer = this.servers.size() - 1;
+        this.dirty = true;
+    }
+
+    /**
+     * Removes the active server, keeping at least one. The previous server becomes active.
+     */
+    public void removeActiveServer() {
+        if (this.servers.size() <= 1) return;
+        int index = activeServer();
+        this.servers.remove(index);
+        this.activeServer = clamp(index, 0, this.servers.size() - 1);
+        this.dirty = true;
+    }
+
+    /**
+     * Moves to the next server.
+     *
+     * @return Whether the move happened
+     */
+    public boolean nextServer() {
+        if (activeServer() + 1 >= this.servers.size()) return false;
+        this.activeServer = activeServer() + 1;
+        this.dirty = true;
+        return true;
+    }
+
+    /**
+     * Moves to the previous server.
+     *
+     * @return Whether the move happened
+     */
+    public boolean previousServer() {
+        if (activeServer() <= 0) return false;
+        this.activeServer = activeServer() - 1;
+        this.dirty = true;
+        return true;
+    }
+
+    /**
+     * Gets the target address of the active server.
      *
      * @return Address
      */
     public String address() {
-        return this.address;
+        return server().address();
     }
 
     /**
-     * Sets the target address.
+     * Sets the target address of the active server.
      *
      * @param address New address
      */
     public void address(String address) {
-        this.address = address == null ? "" : address.trim();
+        server().address(address);
         this.dirty = true;
     }
 
     /**
-     * Gets the targets.
+     * Gets the nickname profiles of the active server.
      *
      * @return Targets
      */
     public List<ProbeTarget> targets() {
-        return this.targets;
+        return server().targets();
     }
 
     /**
-     * Gets the target the probe drives.
+     * Gets the profile the probe drives.
      *
      * @return Primary target
      */
     public ProbeTarget primary() {
-        return this.targets.get(this.clampedActive());
+        return server().primary();
     }
 
     /**
-     * Replaces the target the probe drives.
+     * Replaces the profile the probe drives.
      *
      * @param target New primary target
      */
     public void primary(ProbeTarget target) {
-        this.targets.set(this.clampedActive(), target == null ? new ProbeTarget("", List.of()) : target);
+        server().primary(target);
         this.dirty = true;
     }
 
     /**
-     * Gets the active target index.
+     * Gets the active profile index of the active server.
      *
      * @return Active index
      */
     public int activeIndex() {
-        return this.clampedActive();
+        return server().activeIndex();
     }
 
     /**
-     * Sets the active target index, clamped into range.
+     * Sets the active profile index of the active server, clamped into range.
      *
      * @param index New index
      */
     public void activeIndex(int index) {
-        this.activeIndex = clamp(index, 0, this.targets.size() - 1);
+        server().activeIndex(index);
         this.dirty = true;
     }
 
     /**
-     * Adds an empty target and makes it active.
+     * Adds an empty profile to the active server and makes it active.
      */
     public void addTarget() {
-        this.targets.add(new ProbeTarget("", List.of()));
-        this.activeIndex = this.targets.size() - 1;
+        server().addTarget();
         this.dirty = true;
     }
 
     /**
-     * Replaces every target with imported profiles and selects the first one.
+     * Replaces every profile of the active server with imported ones and selects the first.
      *
      * @param imported Imported targets
      * @return Whether the list was replaced
      */
     public boolean replaceTargets(List<ProbeTarget> imported) {
-        if (imported == null || imported.isEmpty()) return false;
-        this.targets.clear();
-        this.targets.addAll(imported);
-        this.activeIndex = 0;
-        this.dirty = true;
-        return true;
+        boolean replaced = server().replaceTargets(imported);
+        if (replaced) this.dirty = true;
+        return replaced;
     }
 
     /**
-     * Removes the active target, keeping at least one. The previous target becomes active.
+     * Removes the active profile of the active server, keeping at least one.
      */
     public void removeActiveTarget() {
-        if (this.targets.size() <= 1) return;
-        int index = this.clampedActive();
-        this.targets.remove(index);
-        this.activeIndex = clamp(index, 0, this.targets.size() - 1);
+        server().removeActiveTarget();
         this.dirty = true;
     }
 
     /**
-     * Checks whether another target follows the active one.
+     * Checks whether another profile follows the active one on the active server.
      *
-     * @return Whether a next target exists
+     * @return Whether a next profile exists
      */
     public boolean hasNextTarget() {
-        return this.clampedActive() + 1 < this.targets.size();
+        return server().hasNextTarget();
     }
 
     /**
-     * Moves to the next target.
+     * Moves to the next profile of the active server.
      *
      * @return Whether the move happened
      */
     public boolean nextTarget() {
-        if (!hasNextTarget()) return false;
-        this.activeIndex = this.clampedActive() + 1;
-        this.dirty = true;
-        return true;
+        boolean moved = server().nextTarget();
+        if (moved) this.dirty = true;
+        return moved;
     }
 
     /**
@@ -415,15 +492,6 @@ public final class ProbeConfig {
     }
 
     /**
-     * Gets the active index clamped into the target list.
-     *
-     * @return Clamped active index
-     */
-    private int clampedActive() {
-        return clamp(this.activeIndex, 0, this.targets.size() - 1);
-    }
-
-    /**
      * Gets the primary nickname.
      *
      * @return Nickname
@@ -546,8 +614,9 @@ public final class ProbeConfig {
      * @param kind   {@link ProbeTarget#KIND_ONLINE} or {@link ProbeTarget#KIND_INVALID}
      */
     public void markSkip(int index, String reason, long at, String kind) {
-        int target = clamp(index, 0, this.targets.size() - 1);
-        this.targets.set(target, this.targets.get(target).withSkip(reason, at, kind));
+        List<ProbeTarget> targets = server().targets();
+        int target = clamp(index, 0, targets.size() - 1);
+        targets.set(target, targets.get(target).withSkip(reason, at, kind));
         this.dirty = true;
     }
 
@@ -558,9 +627,10 @@ public final class ProbeConfig {
      * @return Whether a mark was removed
      */
     public boolean clearSkip(int index) {
-        int target = clamp(index, 0, this.targets.size() - 1);
-        if (!this.targets.get(target).hasSkip()) return false;
-        this.targets.set(target, this.targets.get(target).withoutSkip());
+        List<ProbeTarget> targets = server().targets();
+        int target = clamp(index, 0, targets.size() - 1);
+        if (!targets.get(target).hasSkip()) return false;
+        targets.set(target, targets.get(target).withoutSkip());
         this.dirty = true;
         return true;
     }
@@ -774,29 +844,41 @@ public final class ProbeConfig {
             Data data = GSON.fromJson(reader, Data.class);
             if (data == null) return;
 
-            address(data.address);
+            // Servers. A file from 1.5.x or older has a single address and one flat target
+            // list; it becomes servers[0] without losing anything.
+            if (data.servers != null && !data.servers.isEmpty()) {
+                List<ProbeServer> loadedServers = new ArrayList<>();
+                for (ServerData serverData : data.servers) {
+                    if (serverData == null) continue;
+                    ProbeServer server = new ProbeServer(serverData.address);
+                    List<ProbeTarget> loadedTargets = readTargets(serverData.targets);
+                    if (!loadedTargets.isEmpty()) {
+                        server.replaceTargets(loadedTargets);
+                    }
+                    if (serverData.activeIndex >= 0) {
+                        server.activeIndex(serverData.activeIndex);
+                    }
+                    loadedServers.add(server);
+                }
+                if (!loadedServers.isEmpty()) {
+                    this.servers.clear();
+                    this.servers.addAll(loadedServers);
+                }
+            } else {
+                ProbeServer legacy = this.servers.get(0);
+                legacy.address(data.address);
 
-            // Targets. The legacy single-nick field is still read when the list is absent.
-            if (data.targets != null && !data.targets.isEmpty()) {
-                List<ProbeTarget> loaded = new ArrayList<>();
-                for (TargetData target : data.targets) {
-                    if (target == null) continue;
-                    loaded.add(new ProbeTarget(
-                            target.nick == null ? "" : target.nick,
-                            target.passwords == null ? List.of() : new ArrayList<>(target.passwords),
-                            target.skipReason == null ? "" : target.skipReason,
-                            target.skipAt,
-                            target.skipKind == null ? "" : target.skipKind));
+                List<ProbeTarget> loadedTargets = readTargets(data.targets);
+                if (!loadedTargets.isEmpty()) {
+                    legacy.replaceTargets(loadedTargets);
+                } else if (data.nick != null && !data.nick.isBlank()) {
+                    // Legacy single-nick file: keep the nickname, passwords were never stored then.
+                    legacy.primary(new ProbeTarget(data.nick, legacy.primary().passwords()));
                 }
-                if (!loaded.isEmpty()) {
-                    this.targets.clear();
-                    this.targets.addAll(loaded);
-                }
-            } else if (data.nick != null && !data.nick.isBlank()) {
-                // Legacy single-nick file: keep the nickname, passwords were never stored then.
-                this.targets.set(0, new ProbeTarget(data.nick, this.targets.get(0).passwords()));
+                legacy.activeIndex(data.activeIndex);
             }
-            activeIndex(data.activeIndex);
+            activeServer(data.activeServer);
+
             this.lastNick = data.lastNick == null ? "" : data.lastNick;
             this.lastPassword = data.lastPassword == null ? "" : data.lastPassword;
             proxyEnabled(data.proxyEnabled);
@@ -852,6 +934,43 @@ public final class ProbeConfig {
     }
 
     /**
+     * Reads a persisted target list.
+     *
+     * @param source Stored targets, may be {@code null}
+     * @return Loaded targets, empty when the source is absent
+     */
+    private static List<ProbeTarget> readTargets(List<TargetData> source) {
+        List<ProbeTarget> loaded = new ArrayList<>();
+        if (source == null) return loaded;
+        for (TargetData target : source) {
+            if (target == null) continue;
+            loaded.add(new ProbeTarget(
+                    target.nick == null ? "" : target.nick,
+                    target.passwords == null ? List.of() : new ArrayList<>(target.passwords),
+                    target.skipReason == null ? "" : target.skipReason,
+                    target.skipAt,
+                    target.skipKind == null ? "" : target.skipKind));
+        }
+        return loaded;
+    }
+
+    /**
+     * Writes one target into its persisted shape.
+     *
+     * @param target Source target
+     * @return Persisted target
+     */
+    private static TargetData writeTarget(ProbeTarget target) {
+        TargetData entry = new TargetData();
+        entry.nick = target.nick();
+        entry.passwords = target.passwords();
+        entry.skipReason = target.skipReason();
+        entry.skipAt = target.skipAt();
+        entry.skipKind = target.skipKind();
+        return entry;
+    }
+
+    /**
      * Writes the settings and pattern banks when they changed since the last save.
      */
     public void saveIfDirty() {
@@ -859,23 +978,33 @@ public final class ProbeConfig {
     }
 
     /**
-     * Writes settings, targets and proxy lines to {@code config/authprobe.json} in plain text.
+     * Writes settings, servers, targets and proxy lines to {@code config/authprobe.json}.
      */
     public void save() {
         Data data = new Data();
-        data.address = this.address;
-        data.nick = nick();
-        data.targets = new ArrayList<>();
-        for (ProbeTarget target : this.targets) {
-            TargetData entry = new TargetData();
-            entry.nick = target.nick();
-            entry.passwords = target.passwords();
-            entry.skipReason = target.skipReason();
-            entry.skipAt = target.skipAt();
-            entry.skipKind = target.skipKind();
-            data.targets.add(entry);
+
+        data.activeServer = activeServer();
+        data.servers = new ArrayList<>();
+        for (ProbeServer server : this.servers) {
+            ServerData entry = new ServerData();
+            entry.address = server.address();
+            entry.activeIndex = server.activeIndex();
+            entry.targets = new ArrayList<>();
+            for (ProbeTarget target : server.targets()) {
+                entry.targets.add(writeTarget(target));
+            }
+            data.servers.add(entry);
         }
+
+        // Legacy mirrors of the active server, so a build from before 1.6.0 can still read
+        // the file and keeps the server the user was last working on.
+        data.address = address();
+        data.nick = nick();
         data.activeIndex = activeIndex();
+        data.targets = new ArrayList<>();
+        for (ProbeTarget target : targets()) {
+            data.targets.add(writeTarget(target));
+        }
         data.lastNick = this.lastNick;
         data.lastPassword = this.lastPassword;
         data.proxyEnabled = this.proxyEnabled;
@@ -921,7 +1050,17 @@ public final class ProbeConfig {
      */
     private static final class Data {
         /**
-         * Target address.
+         * Servers with their nickname profiles. Present in 1.6.0 and newer.
+         */
+        List<ServerData> servers;
+
+        /**
+         * Active server index.
+         */
+        int activeServer;
+
+        /**
+         * Legacy target address of the active server, kept for old builds.
          */
         String address;
 
@@ -1044,6 +1183,26 @@ boolean modEnabled = true;
          * IP/proxy kick reasons.
          */
         List<String> proxyKicks;
+    }
+
+    /**
+     * One persisted server with its nickname profiles.
+     */
+    private static final class ServerData {
+        /**
+         * Server address.
+         */
+        String address;
+
+        /**
+         * Active profile index of this server.
+         */
+        int activeIndex;
+
+        /**
+         * Nickname profiles of this server.
+         */
+        List<TargetData> targets;
     }
 
     /**

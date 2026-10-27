@@ -6,6 +6,7 @@ import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import ru.an0n.authprobe.proxy.ProxyEntry;
 import ru.an0n.authprobe.proxy.ProxyTunnel;
 import ru.an0n.authprobe.utils.Nicks;
@@ -664,6 +665,11 @@ public final class BotController {
                     handlePause(minecraft);
                     return;
                 }
+                if (verdict == ChatWatcher.Verdict.TWO_FACTOR) {
+                    ChatWatcher.consume();
+                    handleTwoFactor();
+                    return;
+                }
                 if (verdict == ChatWatcher.Verdict.FAIL || verdict == ChatWatcher.Verdict.KICK) {
                     ChatWatcher.consume();
                     advance();
@@ -1108,12 +1114,25 @@ public final class BotController {
     }
 
     /**
-     * Abandons the current nickname and queues the next one. Used for invalid names and
-     * "already online" kicks: spending the rest of this nick's passwords would be pointless.
+     * Abandons the current nickname and queues the next one. Used for invalid names,
+     * "already online" kicks and two-factor accounts: spending the rest of this nick's
+     * passwords would be pointless.
      *
      * @param reason Kick reason
      */
     private static void abandonNick(String reason) {
+        abandonNick(reason, isPermanentNickKick(reason)
+                ? ProbeTarget.KIND_INVALID : ProbeTarget.KIND_ONLINE);
+    }
+
+    /**
+     * Abandons the current nickname with an explicit mark kind.
+     *
+     * @param reason Kick reason
+     * @param kind   {@link ProbeTarget#KIND_ONLINE}, {@link ProbeTarget#KIND_INVALID}
+     *               or {@link ProbeTarget#KIND_2FA}
+     */
+    private static void abandonNick(String reason, String kind) {
         ProbeConfig config = ProbeConfig.INSTANCE;
         skippedTarget = config.activeIndex();
         skippedReason = reason == null ? "" : reason;
@@ -1124,19 +1143,22 @@ public final class BotController {
         pauseRetries = 0;
 
         // Persist the mark: the nickname keeps its password list and waits for a manual retry.
-        String kind = isPermanentNickKick(skippedReason)
-                ? ProbeTarget.KIND_INVALID : ProbeTarget.KIND_ONLINE;
         config.markSkip(skippedTarget, skippedReason, System.currentTimeMillis(), kind);
         config.save();
 
-        String text = skippedReason.isEmpty() ? "nickname rejected" : skippedReason;
-        Component line = Component.literal(PREFIX + "nick ")
+        MutableComponent line = Component.literal(PREFIX + "nick ")
                 .append(Component.literal("#" + (skippedTarget + 1) + "/" + config.targets().size())
                         .withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(" ("))
                 .append(Component.literal(config.nick()).withStyle(ChatFormatting.YELLOW))
-                .append(Component.literal(") skipped: "))
-                .append(Component.literal(text).withStyle(ChatFormatting.RED));
+                .append(Component.literal(") "));
+        if (ProbeTarget.KIND_2FA.equals(kind)) {
+            line = line.append(Component.literal("2FA").withStyle(ChatFormatting.RED));
+        } else {
+            String text = skippedReason.isEmpty() ? "nickname rejected" : skippedReason;
+            line = line.append(Component.literal("skipped: "))
+                    .append(Component.literal(text).withStyle(ChatFormatting.RED));
+        }
         announce(line);
 
         if (hasUsableNextTarget()) {
@@ -1152,6 +1174,17 @@ public final class BotController {
         announce(message);
         notify(message);
         config.save();
+    }
+
+    /**
+     * Marks the current nickname as a two-factor account and moves on. The password may well
+     * have been correct: the server asks for a confirmation that only the operator can give.
+     */
+    private static void handleTwoFactor() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        AuthProbe.logger().warn("AuthProbe: 2FA required for nick #{} '{}', last password: {}",
+                config.activeIndex() + 1, config.nick(), lastPassword);
+        abandonNick("2FA", ProbeTarget.KIND_2FA);
     }
 
     /**

@@ -115,10 +115,12 @@ public final class BotStatusScreen extends Screen {
         if (currentTarget.hasSkip()) {
             String mark = currentTarget.skipIsInvalid()
                     ? Component.translatable("authprobe.skip.invalid").getString()
+                    : currentTarget.isTwoFactor()
+                    ? Component.translatable("authprobe.skip.2fa").getString()
                     : Component.translatable("authprobe.skip.online",
                     SKIP_TIME.format(Instant.ofEpochMilli(currentTarget.skipAt()))).getString();
-            graphics.drawCenteredString(this.font, mark, centerX, y,
-                    currentTarget.skipIsInvalid() ? 0xFF_FF_66_66 : 0xFF_FF_AA_33);
+            boolean red = currentTarget.skipIsInvalid() || currentTarget.isTwoFactor();
+            graphics.drawCenteredString(this.font, mark, centerX, y, red ? 0xFF_FF_66_66 : 0xFF_FF_AA_33);
             y += 12;
         }
 

@@ -68,6 +68,34 @@ public record PatternBank(List<String> success, List<String> fail, List<String> 
     }
 
     /**
+     * Substrings that announce a two-factor confirmation step. Kept in code on purpose:
+     * this is a protocol-level signal, not server wording the operator tunes.
+     */
+    private static final List<String> TWO_FACTOR = List.of(
+            "2fa", "two-factor", "two factor", "authenticator",
+            "подтвердите", "подтвердить вход", "подтвердите вход", "подтверди вход"
+    );
+
+    /**
+     * Substrings that mark a captcha prompt. A line carrying one of these is never read as
+     * a two-factor request, even when it also says "подтвердите".
+     */
+    private static final List<String> CAPTCHA = List.of(
+            "капча", "капч", "captcha", "робот", "robot", "бот", "антибот", "antibot"
+    );
+
+    /**
+     * Checks whether the text is a two-factor confirmation request.
+     *
+     * @param text Message text
+     * @return Whether the text asks for a two-factor confirmation
+     */
+    public static boolean matchesTwoFactor(String text) {
+        if (!matches(TWO_FACTOR, text)) return false;
+        return !matches(CAPTCHA, text);
+    }
+
+    /**
      * Checks whether the text contains any of the patterns, case-insensitively.
      *
      * @param patterns Target patterns

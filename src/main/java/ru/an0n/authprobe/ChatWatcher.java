@@ -36,6 +36,11 @@ public final class ChatWatcher {
         WAIT,
 
         /**
+         * The account needs a two-factor confirmation to finish the login.
+         */
+        TWO_FACTOR,
+
+        /**
          * The server complained about the attempt rate.
          */
         KICK
@@ -299,6 +304,10 @@ public final class ChatWatcher {
         if (PatternBank.matches(patterns.pause(), text)) {
             verdict = Verdict.WAIT;
             waitMillis = ServerPause.parseMillis(text);
+            return;
+        }
+        if (PatternBank.matchesTwoFactor(text)) {
+            verdict = Verdict.TWO_FACTOR;
             return;
         }
         if (PatternBank.matches(patterns.kick(), text)) {

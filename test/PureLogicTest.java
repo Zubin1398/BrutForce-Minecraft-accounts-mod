@@ -1,5 +1,6 @@
 import ru.an0n.authprobe.LoginMode;
 import ru.an0n.authprobe.PatternBank;
+import ru.an0n.authprobe.ProbeServer;
 import ru.an0n.authprobe.ProbeTarget;
 import ru.an0n.authprobe.ServerPause;
 import ru.an0n.authprobe.utils.Nicks;
@@ -102,6 +103,20 @@ public final class PureLogicTest {
         eq("pause.zero", -1L, ServerPause.parseMillis("wait 0 sec"));
         eq("pause.null", -1L, ServerPause.parseMillis(null));
 
+        // ---- Two-factor detection ----
+        eq("2fa.plain", true, PatternBank.matchesTwoFactor("Введите код 2FA"));
+        eq("2fa.twoFactor", true, PatternBank.matchesTwoFactor("Two-factor authentication required"));
+        eq("2fa.twoFactorSpace", true, PatternBank.matchesTwoFactor("two factor code sent"));
+        eq("2fa.authenticator", true, PatternBank.matchesTwoFactor("Open your authenticator app"));
+        eq("2fa.confirmRu", true, PatternBank.matchesTwoFactor("Подтвердите вход в Telegram"));
+        eq("2fa.confirmShort", true, PatternBank.matchesTwoFactor("подтверди вход"));
+        eq("2fa.captchaRobot", false, PatternBank.matchesTwoFactor("Подтвердите, что вы не робот"));
+        eq("2fa.captchaWord", false, PatternBank.matchesTwoFactor("Введите капчу и подтвердите вход"));
+        eq("2fa.captchaBot", false, PatternBank.matchesTwoFactor("Подтвердите, что вы не бот"));
+        eq("2fa.captchaEn", false, PatternBank.matchesTwoFactor("Confirm you are not a robot"));
+        eq("2fa.notPresent", false, PatternBank.matchesTwoFactor("Неверный пароль"));
+        eq("2fa.passwordPrompt", false, PatternBank.matchesTwoFactor("/login <пароль>"));
+
         // ---- Skip marks on a target ----
         ProbeTarget plainTarget = new ProbeTarget("Nick", List.of("a"));
         eq("target.noMark", false, plainTarget.hasSkip());
@@ -115,6 +130,29 @@ public final class PureLogicTest {
         eq("target.keepOnPasswords", true, markedTarget.withPasswords(List.of("b")).hasSkip());
         eq("target.keepPasswordsOnSameNick", List.of("a"), markedTarget.withNick("Nick").passwords());
         eq("target.clear", false, markedTarget.withoutSkip().hasSkip());
+        ProbeTarget twoFactorTarget = plainTarget.withSkip("2FA", 7L, ProbeTarget.KIND_2FA);
+        eq("target.2fa.marked", true, twoFactorTarget.hasSkip());
+        eq("target.2fa.kind", true, twoFactorTarget.isTwoFactor());
+        eq("target.2fa.notInvalid", false, twoFactorTarget.skipIsInvalid());
+
+        // ---- ProbeServer ----
+        ProbeServer server = new ProbeServer(" play.example.com ");
+        eq("server.addressTrimmed", "play.example.com", server.address());
+        eq("server.startsOneTarget", 1, server.targets().size());
+        server.addTarget();
+        eq("server.afterAdd", 2, server.targets().size());
+        eq("server.activeIsNew", 1, server.activeIndex());
+        eq("server.nextDoesNotWrap", false, server.nextTarget());
+        server.activeIndex(0);
+        eq("server.nextMoves", true, server.nextTarget());
+        server.removeActiveTarget();
+        eq("server.removeTarget", 1, server.targets().size());
+        server.removeActiveTarget();
+        eq("server.keepsOneTarget", 1, server.targets().size());
+        eq("server.replaceTargets", true,
+                server.replaceTargets(List.of(new ProbeTarget("A", List.of("1")), new ProbeTarget("B", List.of("2")))));
+        eq("server.replaceSelectsFirst", "A", server.primary().nick());
+        eq("server.replaceEmptyRejected", false, server.replaceTargets(List.of()));
 
         // ---- LoginMode ----
         eq("mode.l.packet", "l hunter2", LoginMode.SLASH_L.packet("hunter2"));
