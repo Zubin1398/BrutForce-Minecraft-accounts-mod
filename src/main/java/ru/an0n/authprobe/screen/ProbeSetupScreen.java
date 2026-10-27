@@ -17,6 +17,9 @@ import ru.an0n.authprobe.proxy.ProxyTunnel;
 import ru.an0n.authprobe.utils.Nicks;
 import ru.an0n.authprobe.utils.PasswordList;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,6 +38,27 @@ public final class ProbeSetupScreen extends Screen {
      * Selectable reconnect delays, milliseconds.
      */
     private static final int[] RECONNECTS = {0, 3000, 5000, 8000, 15_000, 30_000};
+
+    /**
+     * Top of the option column, GUI pixels.
+     */
+    private static final int OPTION_TOP = 22;
+
+    /**
+     * Vertical step between option rows, GUI pixels.
+     */
+    private static final int OPTION_STEP = 17;
+
+    /**
+     * Amount of option rows. The chat pane starts under them.
+     */
+    private static final int OPTION_ROWS = 10;
+
+    /**
+     * Format of the skip mark time, local zone.
+     */
+    private static final DateTimeFormatter SKIP_TIME =
+            DateTimeFormatter.ofPattern("dd.MM HH:mm").withZone(ZoneId.systemDefault());
 
     /**
      * Parent screen.
@@ -105,6 +129,21 @@ public final class ProbeSetupScreen extends Screen {
      * Delay button.
      */
     private Button delayButton;
+
+    /**
+     * Smart delay toggle, placed right before the delay button.
+     */
+    private Button smartDelayButton;
+
+    /**
+     * Clears the skip mark of the current nickname.
+     */
+    private Button clearSkipButton;
+
+    /**
+     * Filters the chat pane down to the local logs.
+     */
+    private Button logsOnlyButton;
 
     /**
      * Reconnect button.
@@ -229,6 +268,16 @@ public final class ProbeSetupScreen extends Screen {
         this.removeNickButton.setTooltip(tooltip("authprobe.nick.remove.tip"));
         this.clearProfilesButton.setTooltip(tooltip("authprobe.nick.clear.tip"));
 
+        // Clears the persisted skip mark of the current nickname; placed next to the mark.
+        this.clearSkipButton = this.addRenderableWidget(Button.builder(
+                        Component.literal("×").withStyle(ChatFormatting.YELLOW),
+                        pressed -> {
+                            ProbeConfig.INSTANCE.clearSkip(ProbeConfig.INSTANCE.activeIndex());
+                            this.refreshOptions();
+                        })
+                .bounds(leftX, 51, 11, 11).build());
+        this.clearSkipButton.setTooltip(tooltip("authprobe.nick.skip.clear.tip"));
+
         // Passwords.
         int passwordTop = 96;
         // Leave room for the four status lines above the bottom button row.
@@ -245,8 +294,8 @@ public final class ProbeSetupScreen extends Screen {
         // Options, right column.
         int optionX = rightX;
         int optionWidth = Math.max(60, this.width - rightX - 10);
-        int optionY = 22;
-        int step = 17;
+        int optionY = OPTION_TOP;
+        int step = OPTION_STEP;
         this.modButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.modEnabled(!config.modEnabled());
@@ -267,46 +316,52 @@ public final class ProbeSetupScreen extends Screen {
                     config.mode(config.mode().next());
                     this.refreshOptions();
                 }).bounds(optionX, optionY + step * 2, optionWidth, 16).build());
+        this.smartDelayButton = this.addRenderableWidget(Button.builder(Component.empty(),
+                pressed -> {
+                    config.smartDelay(!config.smartDelay());
+                    this.refreshOptions();
+                }).bounds(optionX, optionY + step * 3, optionWidth, 16).build());
         this.delayButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.delayMs(nextOf(DELAYS, config.delayMs()));
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 3, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 4, optionWidth, 16).build());
         this.reconnectButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.reconnectDelayMs(nextOf(RECONNECTS, config.reconnectDelayMs()));
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 4, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 5, optionWidth, 16).build());
         this.autoStartButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.autoStart(!config.autoStart());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 5, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 6, optionWidth, 16).build());
         this.autoReconnectButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.autoReconnect(!config.autoReconnect());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 8, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 9, optionWidth, 16).build());
         this.debugButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.debugLogs(!config.debugLogs());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 6, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 7, optionWidth, 16).build());
         int proxyWidth = Math.max(40, optionWidth - 22);
         this.proxyButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.proxyEnabled(!config.proxyEnabled());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 7, proxyWidth, 16).build());
+                }).bounds(optionX, optionY + step * 8, proxyWidth, 16).build());
         this.proxyGearButton = this.addRenderableWidget(Button.builder(Component.literal("..."),
                         pressed -> {
                             this.saveFields();
                             this.minecraft.setScreen(new ProxyScreen(this));
                         })
-                .bounds(optionX + proxyWidth + 2, optionY + step * 7, 18, 16).build());
+                .bounds(optionX + proxyWidth + 2, optionY + step * 8, 18, 16).build());
         this.modButton.setTooltip(tooltip("authprobe.option.mod.tip"));
         this.macroButton.setTooltip(tooltip("authprobe.option.macro.tip"));
         this.modeButton.setTooltip(tooltip("authprobe.option.mode.tip"));
+        this.smartDelayButton.setTooltip(tooltip("authprobe.option.smartdelay.tip"));
         this.delayButton.setTooltip(tooltip("authprobe.option.delay.tip"));
         this.reconnectButton.setTooltip(tooltip("authprobe.option.reconnect.tip"));
         this.autoStartButton.setTooltip(tooltip("authprobe.option.autostart.tip"));
@@ -353,7 +408,15 @@ public final class ProbeSetupScreen extends Screen {
         menuButton.setTooltip(tooltip("authprobe.button.menu.tip"));
         this.addRenderableWidget(menuButton);
 
-        // Clear the live chat pane, right-aligned under it.
+        // Filter the pane down to local logs, then the clear button, right-aligned under it.
+        this.logsOnlyButton = Button.builder(Component.empty(), pressed -> {
+                    ProbeConfig.INSTANCE.logsOnly(!ProbeConfig.INSTANCE.logsOnly());
+                    this.refreshOptions();
+                })
+                .bounds(rightX + optionWidth - 190, this.height - 48, 94, 14).build();
+        this.logsOnlyButton.setTooltip(tooltip("authprobe.chat.logsOnly.tip"));
+        this.addRenderableWidget(this.logsOnlyButton);
+
         Button clearButton = Button.builder(Component.translatable("authprobe.chat.clear"),
                         pressed -> {
                             ChatWatcher.clear();
@@ -367,6 +430,9 @@ public final class ProbeSetupScreen extends Screen {
         this.passwordCount = PasswordList.count(this.passwordBox.getValue());
         this.addressValid = ServerConnector.isValidAddress(this.addressBox.getValue());
         this.nickValid = Nicks.isValid(this.nickBox.getValue().trim());
+
+        // The pane buttons are created after the first option refresh, so refresh once more.
+        this.refreshOptions();
     }
 
     @Override
@@ -386,8 +452,10 @@ public final class ProbeSetupScreen extends Screen {
 
         // Field labels.
         graphics.drawString(this.font, Component.translatable("authprobe.address"), leftX, 22, 0xFF_FF_D7_00, false);
-        graphics.drawString(this.font, Component.translatable("authprobe.nick.slot",
-                config.activeIndex() + 1, config.targets().size()), leftX, 54, 0xFF_FF_D7_00, false);
+        Component slot = Component.translatable("authprobe.nick.slot",
+                config.activeIndex() + 1, config.targets().size());
+        graphics.drawString(this.font, slot, leftX, 54, 0xFF_FF_D7_00, false);
+        this.renderSkipMark(graphics, config, slot, leftX, columnWidth);
         graphics.drawString(this.font, Component.translatable("authprobe.passwords"), leftX, 86, 0xFF_FF_D7_00, false);
 
         // Status block, stacked above the button row.
@@ -415,7 +483,7 @@ public final class ProbeSetupScreen extends Screen {
                 this.nickValid ? 0xFF_88_FF_88 : 0xFF_FF_66_66, false);
 
         // Live chat pane.
-        int paneTop = 22 + 17 * 9 + 16;
+        int paneTop = chatPaneTop();
         int paneBottom = this.height - 50;
         graphics.drawString(this.font, Component.translatable("authprobe.chat"), rightX, paneTop - 14, 0xFF_FF_D7_00, false);
         if (paneBottom > paneTop + 6) {
@@ -591,7 +659,7 @@ public final class ProbeSetupScreen extends Screen {
      * @return Top
      */
     private int chatPaneTop() {
-        return 22 + 17 * 9 + 16;
+        return OPTION_TOP + OPTION_STEP * OPTION_ROWS + 16;
     }
 
     /**
@@ -624,7 +692,11 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         int y = top;
         for (int i = start; i < lines.size() && y + lineHeight <= bottom; i++) {
             Visual line = lines.get(i);
-            int color = line.actionBar() ? 0xFF_88_88_FF : 0xFF_E0E0E0;
+            int color = switch (line.kind()) {
+                case ACTION_BAR -> 0xFF_88_88_FF;
+                case LOCAL -> 0xFF_FF_D7_00;
+                default -> 0xFF_E0E0E0;
+            };
             graphics.drawString(this.font, line.text(), x, y, color, false);
             y += lineHeight;
         }
@@ -651,7 +723,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         List<Visual> result = new ArrayList<>();
         for (ChatWatcher.Line line : lines) {
             for (String part : wrap(line.text(), width)) {
-                result.add(new Visual(part, line.actionBar()));
+                result.add(new Visual(part, line.kind()));
             }
         }
         return result;
@@ -690,10 +762,10 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
     /**
      * One rendered chat line.
      *
-     * @param text      Line text
-     * @param actionBar Whether it came from the action bar
+     * @param text Line text
+     * @param kind Where the line came from
      */
-    private record Visual(String text, boolean actionBar) {
+    private record Visual(String text, ChatWatcher.Kind kind) {
     }
 
     /**
@@ -710,7 +782,12 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
     private void saveFields() {
         ProbeConfig config = ProbeConfig.INSTANCE;
         config.address(this.addressBox.getValue());
-        config.primary(new ProbeTarget(this.nickBox.getValue().trim(), PasswordList.parse(this.passwordBox.getValue())));
+
+        // Keep the skip mark unless the nickname text itself changed: the mark described the old name.
+        ProbeTarget current = config.primary();
+        ProbeTarget updated = current.withNick(this.nickBox.getValue().trim())
+                .withPasswords(PasswordList.parse(this.passwordBox.getValue()));
+        config.primary(updated);
     }
 
     /**
@@ -767,6 +844,57 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.passwordBox.setValue(String.join("\n", config.passwords()));
         this.passwordCount = PasswordList.count(this.passwordBox.getValue());
         this.nickValid = Nicks.isValid(this.nickBox.getValue().trim());
+        this.refreshSkipButton();
+    }
+
+    /**
+     * Draws the persisted skip mark next to the nickname slot label.
+     *
+     * @param graphics    Drawing graphics
+     * @param config      Live config
+     * @param slot        Slot label already drawn
+     * @param leftX       Column left
+     * @param columnWidth Column width
+     */
+    private void renderSkipMark(GuiGraphics graphics, ProbeConfig config, Component slot, int leftX, int columnWidth) {
+        ProbeTarget target = config.primary();
+        if (!target.hasSkip()) return;
+        int x = leftX + this.font.width(slot) + 10;
+        int maxWidth = Math.max(20, leftX + columnWidth - x - 14);
+        int color = target.skipIsInvalid() ? 0xFF_FF_66_66 : 0xFF_FF_AA_33;
+        String text = this.font.plainSubstrByWidth(skipMarkText(target).getString(), maxWidth);
+        graphics.drawString(this.font, text, x, 54, color, false);
+    }
+
+    /**
+     * Places the clear button right after the skip mark and hides it when there is no mark.
+     */
+    private void refreshSkipButton() {
+        if (this.clearSkipButton == null) return;
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        ProbeTarget target = config.primary();
+        boolean marked = target.hasSkip();
+        this.clearSkipButton.visible = marked;
+        this.clearSkipButton.active = marked;
+        if (!marked) return;
+
+        Component slot = Component.translatable("authprobe.nick.slot",
+                config.activeIndex() + 1, config.targets().size());
+        int columnWidth = Math.max(80, (this.width - 30) / 2);
+        int x = 10 + this.font.width(slot) + 10 + this.font.width(skipMarkText(target)) + 4;
+        this.clearSkipButton.setX(Math.min(x, 10 + columnWidth - 11));
+    }
+
+    /**
+     * Builds the mark text for a target.
+     *
+     * @param target Target with a mark
+     * @return Localized mark
+     */
+    private static Component skipMarkText(ProbeTarget target) {
+        if (target.skipIsInvalid()) return Component.translatable("authprobe.skip.invalid");
+        String when = SKIP_TIME.format(Instant.ofEpochMilli(target.skipAt()));
+        return Component.translatable("authprobe.skip.online", when);
     }
 
     /**
@@ -777,7 +905,9 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.modButton.setMessage(Component.translatable("authprobe.option.mod", onOff(config.modEnabled())));
         this.macroButton.setMessage(Component.translatable("authprobe.option.macro", onOff(config.macroEnabled())));
         this.modeButton.setMessage(Component.translatable("authprobe.option.mode", config.mode().display()));
+        this.smartDelayButton.setMessage(Component.translatable("authprobe.option.smartdelay", onOff(config.smartDelay())));
         this.delayButton.setMessage(Component.translatable("authprobe.option.delay", formatDelay(config.delayMs())));
+        this.delayButton.active = !config.smartDelay();
         this.reconnectButton.setMessage(Component.translatable("authprobe.option.reconnect", config.reconnectDelayMs() / 1000));
         this.autoStartButton.setMessage(Component.translatable("authprobe.option.autostart", onOff(config.autoStart())));
         this.autoReconnectButton.setMessage(Component.translatable("authprobe.option.autoreconnect", onOff(config.autoReconnect())));
@@ -785,6 +915,16 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.proxyButton.setMessage(Component.translatable("authprobe.option.proxy",
                 onOff(config.modEnabled() && config.proxyEnabled())));
         this.proxyButton.active = config.modEnabled();
+        this.refreshSkipButton();
+
+        // The pane filter only matters while debug logs are on.
+        if (this.logsOnlyButton != null) {
+            boolean logsVisible = config.logsOnly() && config.debugLogs();
+            this.logsOnlyButton.setMessage(Component.translatable("authprobe.chat.logsOnly")
+                    .withStyle(logsVisible ? ChatFormatting.GREEN : ChatFormatting.RED));
+            this.logsOnlyButton.active = config.debugLogs() && config.modEnabled();
+        }
+
         if (this.startButton != null) this.startButton.active = config.modEnabled();
     }
 

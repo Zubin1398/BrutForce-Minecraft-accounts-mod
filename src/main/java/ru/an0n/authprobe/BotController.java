@@ -161,27 +161,52 @@ public final class BotController {
 
     /**
      * Substrings that mean the nickname itself was rejected (invalid name, already online).
+     * Editable in the patterns screen, so a server with unusual wording needs no rebuild.
+     *
+     * @return Nickname kick reasons
      */
-    private static final List<String> NICK_KICKS = List.of(
-            "already logged in", "already connected", "already online", "already in game",
-            "already playing", "already on the server", "player is already", "name is already",
-            "nickname is already", "you are already", "name is already in use",
-            "invalid nickname", "invalid username", "bad nickname", "illegal nickname",
-            "failed to verify username", "failed to verify authentication",
-            "уже на сервере", "уже в игре", "уже авторизован", "уже находится", "ник уже",
-            "ник занят", "ник в онлайне", "неверный ник", "неправильный ник", "недопустимый ник"
-    );
+    private static List<String> nickKicks() {
+        return ProbeConfig.INSTANCE.nickKicks();
+    }
 
     /**
      * Reasons that usually mean the server filtered the IP/proxy or the connection timed out.
+     * Editable in the patterns screen.
+     *
+     * @return Proxy kick reasons
      */
-    private static final List<String> PROXY_KICKS = List.of(
-            "ip ban", "ip-ban", "banned your ip", "your ip", "ip address",
-            "ip-адрес", "ip адрес", "ваш ip", "бан по ip",
-            "vpn", "proxy", "прокси", "suspicious", "blacklist", "blacklisted", "blocked",
-            "timeout", "timed out", "connection timed out",
-            "превышено время ожидания", "время ожидания", "тайм-аут", "таймаут", "заблокирован"
+    private static List<String> proxyKicks() {
+        return ProbeConfig.INSTANCE.proxyKicks();
+    }
+
+    /**
+     * Words that mark a nickname the server will never accept, as opposed to one that is
+     * merely busy right now.
+     */
+    private static final List<String> PERMANENT_NICK_KICKS = List.of(
+            "invalid", "bad nickname", "illegal nickname", "неверн", "неправильн", "недопустим"
     );
+
+    /**
+     * How many times the same password may be re-sent after a server-requested pause.
+     */
+    private static final int MAX_PAUSE_RETRIES = 3;
+
+    /**
+     * Pause retries already spent on the current password.
+     */
+    private static int pauseRetries;
+
+    /**
+     * Server pauses waited out in this run, for the kick report.
+     */
+    private static int pauseCount;
+
+    /**
+     * Classification of the last disconnect, for the kick screen:
+     * {@code nick-online}, {@code nick-invalid}, {@code proxy}, or empty when unrecognized.
+     */
+    private static String kickClass = "";
 
     /**
      * Target index the current run started from.
@@ -416,6 +441,7 @@ public final class BotController {
         }
         autoResume = false;
         sendSpent = false;
+        pauseRetries = 0;
         begun = true;
         ChatWatcher.arm();
         state = State.WAIT_SEND;
@@ -433,6 +459,7 @@ public final class BotController {
         autoResume = false;
         reconnectPending = false;
         sendSpent = false;
+        pauseRetries = 0;
         ChatWatcher.disarm();
 
         if (passwordIndex >= config.passwordCount()) {
@@ -496,6 +523,7 @@ public final class BotController {
         state = State.DISCONNECTED;
         ChatWatcher.disarm();
         autoResume = false;
+        classifyKick(kickReason);
 
         // A send that was in flight when the session dropped has spent its try: the server
         // either saw the password or kicked us for it. Advance exactly once so the run keeps
@@ -542,6 +570,7 @@ public final class BotController {
         kickReason = reason == null ? "" : reason.getString();
         state = State.DISCONNECTED;
         ChatWatcher.disarm();
+        classifyKick(kickReason);
 
         if (isNickKick(kickReason)) {
             abandonNick(kickReason);
@@ -591,6 +620,11 @@ public final class BotController {
                 // Joined.
                 if (minecraft.getConnection() != null && minecraft.player != null) {
                     state = State.ARMED;
+
+                    // The nickname is reachable again, so the skip mark has served its purpose.
+                    ProbeConfig joined = ProbeConfig.INSTANCE;
+                    if (joined.clearSkip(joined.activeIndex())) joined.saveIfDirty();
+
                     announceNickHeader();
                     AuthProbe.logger().info("AuthProbe: joined as nick #{} '{}'.",
                             ProbeConfig.INSTANCE.activeIndex() + 1, ProbeConfig.INSTANCE.nick());
@@ -623,6 +657,11 @@ public final class BotController {
                 if (verdict == ChatWatcher.Verdict.SUCCESS) {
                     ChatWatcher.consume();
                     succeed();
+                    return;
+                }
+                if (verdict == ChatWatcher.Verdict.WAIT) {
+                    ChatWatcher.consume();
+                    handlePause(minecraft);
                     return;
                 }
                 if (verdict == ChatWatcher.Verdict.FAIL || verdict == ChatWatcher.Verdict.KICK) {
@@ -745,10 +784,66 @@ public final class BotController {
     }
 
     /**
+     * Handles a server-requested pause. With smart delay on, the same password is re-sent after
+     * the requested pause and the try is not spent. With smart delay off, the message keeps the
+     * old meaning: a kick-like answer that spends the password.
+     *
+     * @param minecraft Minecraft instance
+     */
+    private static void handlePause(Minecraft minecraft) {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        if (!config.smartDelay()) {
+            advance();
+            scheduleNext(minecraft);
+            return;
+        }
+
+        if (pauseRetries >= MAX_PAUSE_RETRIES) {
+            pauseRetries = 0;
+            advance();
+            scheduleNext(minecraft);
+            announce("server paused " + (MAX_PAUSE_RETRIES + 1) + " times in a row: password spent");
+            return;
+        }
+
+        pauseRetries++;
+        pauseCount++;
+        long requested = ChatWatcher.waitMillis();
+        long base = Math.max(1_000L, config.delayMs());
+        long wait = requested > 0 ? Math.max(requested, base) : base;
+
+        // The password never reached the authentication check, so it is not spent.
+        sendSpent = false;
+        state = State.WAIT_SEND;
+        nextSendAt = System.currentTimeMillis() + wait;
+        announcePause(wait);
+    }
+
+    /**
+     * Announces the pause and the password that will be re-sent.
+     *
+     * @param wait Pause, milliseconds
+     */
+    private static void announcePause(long wait) {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        String seconds = wait % 1000L == 0L
+                ? Long.toString(wait / 1000L)
+                : String.format(java.util.Locale.ROOT, "%.1f", wait / 1000.0D);
+        Component line = Component.literal(PREFIX + "сервер просит паузу ")
+                .append(Component.literal(seconds + " с").withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" — повтор пароля "))
+                .append(Component.literal("#" + (passwordIndex + 1) + "/" + config.passwordCount())
+                        .withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" (" + pauseRetries + "/" + MAX_PAUSE_RETRIES + ")"));
+        announce(line);
+    }
+
+    /**
      * Spends the current password and moves to the next one.
      */
     private static void advance() {
         passwordIndex++;
+        pauseRetries = 0;
         sendSpent = false;
     }
 
@@ -857,6 +952,7 @@ public final class BotController {
         passwordIndex = 0;
         lastPassword = "";
         sendSpent = false;
+        pauseRetries = 0;
         begun = true;
         autoResume = false;
         waitForStart = true;
@@ -894,7 +990,60 @@ public final class BotController {
      * @return Whether the nickname itself was rejected
      */
     private static boolean isNickKick(String reason) {
-        return reason != null && !reason.isBlank() && PatternBank.matches(NICK_KICKS, reason);
+        return reason != null && !reason.isBlank() && PatternBank.matches(nickKicks(), reason);
+    }
+
+    /**
+     * Checks whether a nickname kick is permanent. The server will reject the name again, so
+     * the mark says so instead of inviting a retry hours later.
+     *
+     * @param reason Kick reason
+     * @return Whether the nickname itself is invalid
+     */
+    private static boolean isPermanentNickKick(String reason) {
+        return reason != null && PatternBank.matches(PERMANENT_NICK_KICKS, reason);
+    }
+
+    /**
+     * Classifies the last disconnect for the kick screen and the log.
+     *
+     * @param reason Kick or connect-failure reason
+     */
+    private static void classifyKick(String reason) {
+        kickClass = "";
+        if (reason == null || reason.isBlank()) return;
+
+        String nickRule = PatternBank.matchesAny(nickKicks(), reason);
+        if (!nickRule.isEmpty()) {
+            kickClass = isPermanentNickKick(reason) ? "nick-invalid" : "nick-online";
+            AuthProbe.logger().info("AuthProbe: kick classified as {} by '{}'.", kickClass, nickRule);
+            return;
+        }
+        String proxyRule = PatternBank.matchesAny(proxyKicks(), reason);
+        if (!proxyRule.isEmpty()) {
+            kickClass = "proxy";
+            AuthProbe.logger().info("AuthProbe: kick classified as proxy by '{}'.", proxyRule);
+            return;
+        }
+        AuthProbe.logger().info("AuthProbe: kick reason not recognized: {}", reason);
+    }
+
+    /**
+     * Gets the classification of the last disconnect as a translation key.
+     *
+     * @return Translation key
+     */
+    public static String kickClassKey() {
+        return "authprobe.kickclass." + (kickClass.isEmpty() ? "none" : kickClass);
+    }
+
+    /**
+     * Gets the amount of server pauses waited out in this run.
+     *
+     * @return Pause count
+     */
+    public static int pauseCount() {
+        return pauseCount;
     }
 
     /**
@@ -911,7 +1060,7 @@ public final class BotController {
                 && !config.proxies().isEmpty()
                 && reason != null
                 && !reason.isBlank()
-                && PatternBank.matches(PROXY_KICKS, reason);
+                && PatternBank.matches(proxyKicks(), reason);
     }
 
     /**
@@ -972,6 +1121,13 @@ public final class BotController {
         reconnectPending = false;
         autoResume = false;
         sendSpent = false;
+        pauseRetries = 0;
+
+        // Persist the mark: the nickname keeps its password list and waits for a manual retry.
+        String kind = isPermanentNickKick(skippedReason)
+                ? ProbeTarget.KIND_INVALID : ProbeTarget.KIND_ONLINE;
+        config.markSkip(skippedTarget, skippedReason, System.currentTimeMillis(), kind);
+        config.save();
 
         String text = skippedReason.isEmpty() ? "nickname rejected" : skippedReason;
         Component line = Component.literal(PREFIX + "nick ")
@@ -1067,6 +1223,9 @@ public final class BotController {
         sentCount = 0;
         lastPassword = "";
         kickReason = "";
+        pauseRetries = 0;
+        pauseCount = 0;
+        kickClass = "";
         reconnectPending = false;
         reconnectCount = 0;
         autoResume = false;
@@ -1088,6 +1247,7 @@ public final class BotController {
      */
     public static void announce(String message) {
         AuthProbe.logger().info("AuthProbe: {}", message);
+        mirrorLocal(PREFIX + message);
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) return;
         minecraft.player.displayClientMessage(Component.literal(PREFIX + message), false);
@@ -1100,9 +1260,21 @@ public final class BotController {
      */
     public static void announce(Component message) {
         AuthProbe.logger().info("AuthProbe: {}", message.getString());
+        mirrorLocal(PREFIX + message.getString());
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) return;
         minecraft.player.displayClientMessage(Component.literal(PREFIX).append(message), false);
+    }
+
+    /**
+     * Mirrors a local line into the chat pane while debug logs are on, so the pane shows the
+     * same trail the in-game chat does.
+     *
+     * @param text Full line, prefix included
+     */
+    private static void mirrorLocal(String text) {
+        if (!ProbeConfig.INSTANCE.debugLogs()) return;
+        ChatWatcher.local(text);
     }
 
     /**

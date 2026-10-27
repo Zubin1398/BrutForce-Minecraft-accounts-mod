@@ -19,8 +19,8 @@ import java.util.List;
  * Deliberately mutable and single-instance: the UI edits it in place, and the
  * controller reads it every tick.
  *
- * <p>Settings and pattern banks persist to {@code config/authprobe.json} in plain text.
- * The password list is deliberately not written to disk.
+ * <p>Settings, nicknames, their password lists, the pattern banks and the skip marks persist
+ * to {@code config/authprobe.json} in plain text. No encryption is applied by design.
  *
  * @author AN0N
  */
@@ -86,6 +86,22 @@ public final class ProbeConfig {
     private int delayMs = 1200;
 
     /**
+     * Whether a server-requested pause is honored instead of spending the password.
+     * When on, the manual delay button is inactive and only sets the base interval.
+     */
+    private boolean smartDelay;
+
+    /**
+     * Reasons that mean the nickname itself was rejected. Editable in the patterns screen.
+     */
+    private final List<String> nickKicks = new ArrayList<>(PatternBank.defaultNickKicks());
+
+    /**
+     * Reasons that mean the server filtered the IP or the proxy. Editable in the patterns screen.
+     */
+    private final List<String> proxyKicks = new ArrayList<>(PatternBank.defaultProxyKicks());
+
+    /**
      * How long to wait for a verdict, milliseconds.
      */
     private int timeoutMs = 3000;
@@ -114,6 +130,11 @@ public final class ProbeConfig {
      * Whether every attempted password is printed to the local chat in yellow.
      */
     private boolean debugLogs;
+
+    /**
+     * Whether the chat pane keeps only the local AuthProbe log lines.
+     */
+    private boolean logsOnly;
 
     /**
      * Master switch. When off, chat is not captured, commands are not swallowed and the
@@ -449,6 +470,102 @@ public final class ProbeConfig {
     }
 
     /**
+     * Checks whether a server-requested pause is honored instead of spending the password.
+     *
+     * @return Whether smart delay is on
+     */
+    public boolean smartDelay() {
+        return this.smartDelay;
+    }
+
+    /**
+     * Enables or disables the smart delay.
+     *
+     * @param value New value
+     */
+    public void smartDelay(boolean value) {
+        this.smartDelay = value;
+        this.dirty = true;
+    }
+
+    /**
+     * Gets the reasons that mean the nickname itself was rejected.
+     *
+     * @return Editable nickname kick reasons
+     */
+    public List<String> nickKicks() {
+        return this.nickKicks;
+    }
+
+    /**
+     * Replaces the nickname kick reasons.
+     *
+     * @param values New reasons, {@code null} restores the defaults
+     */
+    public void nickKicks(List<String> values) {
+        this.nickKicks.clear();
+        if (values == null || values.isEmpty()) {
+            this.nickKicks.addAll(PatternBank.defaultNickKicks());
+        } else {
+            this.nickKicks.addAll(values);
+        }
+        this.dirty = true;
+    }
+
+    /**
+     * Gets the reasons that mean the server filtered the IP or the proxy.
+     *
+     * @return Editable proxy kick reasons
+     */
+    public List<String> proxyKicks() {
+        return this.proxyKicks;
+    }
+
+    /**
+     * Replaces the proxy kick reasons.
+     *
+     * @param values New reasons, {@code null} restores the defaults
+     */
+    public void proxyKicks(List<String> values) {
+        this.proxyKicks.clear();
+        if (values == null || values.isEmpty()) {
+            this.proxyKicks.addAll(PatternBank.defaultProxyKicks());
+        } else {
+            this.proxyKicks.addAll(values);
+        }
+        this.dirty = true;
+    }
+
+    /**
+     * Writes a skip mark onto a target and persists it, so the operator can retry that
+     * nickname hours later without losing track of it.
+     *
+     * @param index  Target index
+     * @param reason Kick reason
+     * @param at     Time of the kick, milliseconds since the epoch
+     * @param kind   {@link ProbeTarget#KIND_ONLINE} or {@link ProbeTarget#KIND_INVALID}
+     */
+    public void markSkip(int index, String reason, long at, String kind) {
+        int target = clamp(index, 0, this.targets.size() - 1);
+        this.targets.set(target, this.targets.get(target).withSkip(reason, at, kind));
+        this.dirty = true;
+    }
+
+    /**
+     * Drops the skip mark from a target.
+     *
+     * @param index Target index
+     * @return Whether a mark was removed
+     */
+    public boolean clearSkip(int index) {
+        int target = clamp(index, 0, this.targets.size() - 1);
+        if (!this.targets.get(target).hasSkip()) return false;
+        this.targets.set(target, this.targets.get(target).withoutSkip());
+        this.dirty = true;
+        return true;
+    }
+
+    /**
      * Gets the verdict timeout.
      *
      * @return Timeout, milliseconds
@@ -562,6 +679,25 @@ public final class ProbeConfig {
     }
 
     /**
+     * Checks whether the chat pane keeps only local AuthProbe log lines.
+     *
+     * @return Whether the pane is filtered to logs
+     */
+    public boolean logsOnly() {
+        return this.logsOnly;
+    }
+
+    /**
+     * Sets whether the chat pane keeps only local AuthProbe log lines.
+     *
+     * @param value New value
+     */
+    public void logsOnly(boolean value) {
+        this.logsOnly = value;
+        this.dirty = true;
+    }
+
+    /**
      * Checks whether the mod is enabled.
      *
      * @return Whether chat capture, command interception and the state machine are active
@@ -647,7 +783,10 @@ public final class ProbeConfig {
                     if (target == null) continue;
                     loaded.add(new ProbeTarget(
                             target.nick == null ? "" : target.nick,
-                            target.passwords == null ? List.of() : new ArrayList<>(target.passwords)));
+                            target.passwords == null ? List.of() : new ArrayList<>(target.passwords),
+                            target.skipReason == null ? "" : target.skipReason,
+                            target.skipAt,
+                            target.skipKind == null ? "" : target.skipKind));
                 }
                 if (!loaded.isEmpty()) {
                     this.targets.clear();
@@ -666,6 +805,7 @@ public final class ProbeConfig {
 
             delayMs(data.delayMs);
             reconnectDelayMs(data.reconnectDelayMs);
+            smartDelay(data.smartDelay);
             if (data.mode != null) {
                 try {
                     mode(LoginMode.valueOf(data.mode));
@@ -676,12 +816,14 @@ public final class ProbeConfig {
             autoStart(data.autoStart);
             autoReconnect(data.autoReconnect);
             debugLogs(data.debugLogs);
+            logsOnly(data.logsOnly);
             modEnabled(data.modEnabled);
             macroEnabled(data.macroEnabled);
 
             PatternBank defaults = PatternBank.defaults();
             List<String> success = data.success == null ? new ArrayList<>(defaults.success()) : new ArrayList<>(data.success);
             List<String> fail = data.fail == null ? new ArrayList<>(defaults.fail()) : new ArrayList<>(data.fail);
+            List<String> wait = data.wait == null ? new ArrayList<>(defaults.pause()) : new ArrayList<>(data.wait);
             List<String> kick = data.kick == null ? new ArrayList<>(defaults.kick()) : new ArrayList<>(data.kick);
 
             // Migrate files that still hold the original untouched defaults to the expanded set.
@@ -693,9 +835,13 @@ public final class ProbeConfig {
             if (success.equals(oldSuccess) && fail.equals(oldFail) && kick.equals(oldKick)) {
                 success = new ArrayList<>(defaults.success());
                 fail = new ArrayList<>(defaults.fail());
+                wait = new ArrayList<>(defaults.pause());
                 kick = new ArrayList<>(defaults.kick());
             }
-            patterns(new PatternBank(success, fail, kick));
+            patterns(new PatternBank(success, fail, wait, kick));
+
+            nickKicks(data.nickKicks);
+            proxyKicks(data.proxyKicks);
 
             // Loading is not a change worth writing back immediately.
             this.dirty = false;
@@ -724,6 +870,9 @@ public final class ProbeConfig {
             TargetData entry = new TargetData();
             entry.nick = target.nick();
             entry.passwords = target.passwords();
+            entry.skipReason = target.skipReason();
+            entry.skipAt = target.skipAt();
+            entry.skipKind = target.skipKind();
             data.targets.add(entry);
         }
         data.activeIndex = activeIndex();
@@ -734,15 +883,20 @@ public final class ProbeConfig {
         data.proxyIndex = proxyIndex();
         data.delayMs = this.delayMs;
         data.reconnectDelayMs = this.reconnectDelayMs;
+        data.smartDelay = this.smartDelay;
         data.mode = this.mode.name();
         data.autoStart = this.autoStart;
         data.autoReconnect = this.autoReconnect;
         data.debugLogs = this.debugLogs;
+        data.logsOnly = this.logsOnly;
         data.modEnabled = this.modEnabled;
         data.macroEnabled = this.macroEnabled;
         data.success = this.patterns.success();
         data.fail = this.patterns.fail();
+        data.wait = this.patterns.pause();
         data.kick = this.patterns.kick();
+        data.nickKicks = new ArrayList<>(this.nickKicks);
+        data.proxyKicks = new ArrayList<>(this.proxyKicks);
 
         Path path = file();
         Path temp = path.resolveSibling("authprobe.json.tmp");
@@ -817,6 +971,11 @@ public final class ProbeConfig {
         int delayMs = 1200;
 
         /**
+         * Smart delay toggle.
+         */
+        boolean smartDelay;
+
+        /**
          * Reconnect delay, milliseconds.
          */
         int reconnectDelayMs = 8000;
@@ -842,6 +1001,11 @@ public final class ProbeConfig {
 boolean debugLogs;
 
         /**
+         * Chat pane filtered to local logs.
+         */
+        boolean logsOnly;
+
+        /**
          * Master mod switch.
          */
 boolean modEnabled = true;
@@ -862,9 +1026,24 @@ boolean modEnabled = true;
         List<String> fail;
 
         /**
+         * Server-pause patterns.
+         */
+        List<String> wait;
+
+        /**
          * Kick patterns.
          */
         List<String> kick;
+
+        /**
+         * Nickname kick reasons.
+         */
+        List<String> nickKicks;
+
+        /**
+         * IP/proxy kick reasons.
+         */
+        List<String> proxyKicks;
     }
 
     /**
@@ -880,6 +1059,21 @@ boolean modEnabled = true;
          * Password list.
          */
         List<String> passwords;
+
+        /**
+         * Reason of the last nickname-level kick.
+         */
+        String skipReason;
+
+        /**
+         * Time of that kick, milliseconds since the epoch.
+         */
+        long skipAt;
+
+        /**
+         * Mark kind: {@code online} or {@code invalid}.
+         */
+        String skipKind;
     }
 
     /**

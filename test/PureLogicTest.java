@@ -1,5 +1,7 @@
 import ru.an0n.authprobe.LoginMode;
 import ru.an0n.authprobe.PatternBank;
+import ru.an0n.authprobe.ProbeTarget;
+import ru.an0n.authprobe.ServerPause;
 import ru.an0n.authprobe.utils.Nicks;
 import ru.an0n.authprobe.utils.PasswordList;
 
@@ -64,7 +66,55 @@ public final class PureLogicTest {
         eq("defaults.fail.matchesRu", true, PatternBank.matches(defaults.fail(), "Неверный пароль"));
         eq("defaults.kick.matchesEn", true, PatternBank.matches(defaults.kick(), "Too many failed attempts"));
         eq("defaults.kick.matchesRu", true, PatternBank.matches(defaults.kick(), "Слишком много попыток"));
+        eq("defaults.wait.matchesRu", true, PatternBank.matches(defaults.pause(), "Подождите перед отправкой 30 сек"));
+        eq("defaults.wait.matchesEn", true, PatternBank.matches(defaults.pause(), "Please wait 15s"));
+        eq("defaults.wait.notFail", false, PatternBank.matches(defaults.pause(), "Неверный пароль"));
+        eq("defaults.wait.notSuccess", false, PatternBank.matches(defaults.pause(), "You are now logged in"));
+        eq("defaults.nickKicks.notProxy", false,
+                PatternBank.matches(PatternBank.defaultNickKicks(), "Your IP is blocked"));
+        eq("defaults.proxyKicks.bareIp", true, PatternBank.matches(PatternBank.defaultProxyKicks(), "IP"));
+        eq("defaults.proxyKicks.vipNick", false,
+                PatternBank.matches(PatternBank.defaultProxyKicks(), "VIP_Player joined the game"));
         eq("defaults.success.notFail", false, PatternBank.matches(defaults.success(), "Wrong password!"));
+
+        // ---- Word boundaries for short Latin tokens ----
+        eq("word.ipStandalone", true, PatternBank.matches(List.of("ip"), "Your IP is blocked"));
+        eq("word.ipInVip", false, PatternBank.matches(List.of("ip"), "VIP_Player joined the game"));
+        eq("word.ipInScript", false, PatternBank.matches(List.of("ip"), "kicked by script"));
+        eq("word.ipHyphen", true, PatternBank.matches(List.of("ip"), "IP-адрес заблокирован"));
+        eq("word.vpnStandalone", true, PatternBank.matches(List.of("vpn"), "VPN detected"));
+        eq("word.longStaysSubstring", true, PatternBank.matches(List.of("kicked"), "You were kicked"));
+        eq("word.matchesAny", "ip", PatternBank.matchesAny(List.of("vpn", "ip"), "Your IP is blocked"));
+        eq("word.matchesAnyMiss", "", PatternBank.matchesAny(List.of("ip"), "VIP_Player joined"));
+
+        // ---- Server pause parsing ----
+        eq("pause.ru.seconds", 30_000L, ServerPause.parseMillis("Подождите перед отправкой 30 сек"));
+        eq("pause.ru.secondsFull", 45_000L, ServerPause.parseMillis("Повторите через 45 секунд"));
+        eq("pause.en.seconds", 15_000L, ServerPause.parseMillis("Please wait 15s before next attempt"));
+        eq("pause.ru.minutes", 60_000L, ServerPause.parseMillis("Подождите 1 мин"));
+        eq("pause.en.minutes", 120_000L, ServerPause.parseMillis("wait 2 minutes"));
+        eq("pause.noNumber", -1L, ServerPause.parseMillis("Подождите перед отправкой"));
+        eq("pause.noTimeUnit", -1L, ServerPause.parseMillis("У вас 3 попытки"));
+        eq("pause.numbersInText", -1L, ServerPause.parseMillis("Онлайн 250 игроков"));
+        eq("pause.cyrillicWordAfterNumber", -1L, ServerPause.parseMillis("5 сообщений отправлено"));
+        eq("pause.clampMax", 300_000L, ServerPause.parseMillis("подождите 99999 сек"));
+        eq("pause.clampMin", 1_000L, ServerPause.parseMillis("wait 500 ms"));
+        eq("pause.zero", -1L, ServerPause.parseMillis("wait 0 sec"));
+        eq("pause.null", -1L, ServerPause.parseMillis(null));
+
+        // ---- Skip marks on a target ----
+        ProbeTarget plainTarget = new ProbeTarget("Nick", List.of("a"));
+        eq("target.noMark", false, plainTarget.hasSkip());
+        ProbeTarget markedTarget = plainTarget.withSkip("already online", 123L, ProbeTarget.KIND_ONLINE);
+        eq("target.marked", true, markedTarget.hasSkip());
+        eq("target.kindOnline", false, markedTarget.skipIsInvalid());
+        eq("target.invalidKind", true,
+                plainTarget.withSkip("invalid nickname", 5L, ProbeTarget.KIND_INVALID).skipIsInvalid());
+        eq("target.keepOnSameNick", true, markedTarget.withNick("Nick").hasSkip());
+        eq("target.dropOnNewNick", false, markedTarget.withNick("Other").hasSkip());
+        eq("target.keepOnPasswords", true, markedTarget.withPasswords(List.of("b")).hasSkip());
+        eq("target.keepPasswordsOnSameNick", List.of("a"), markedTarget.withNick("Nick").passwords());
+        eq("target.clear", false, markedTarget.withoutSkip().hasSkip());
 
         // ---- LoginMode ----
         eq("mode.l.packet", "l hunter2", LoginMode.SLASH_L.packet("hunter2"));

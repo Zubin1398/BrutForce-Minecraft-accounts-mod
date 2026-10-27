@@ -28,6 +28,7 @@ public final class AuthProbe {
     public AuthProbe() {
         ProbeConfig.INSTANCE.load();
         ChatWatcher.setEnabled(ProbeConfig.INSTANCE.modEnabled());
+        ChatWatcher.setLogsOnly(ProbeConfig.INSTANCE.logsOnly() && ProbeConfig.INSTANCE.debugLogs());
         MinecraftForge.EVENT_BUS.register(new ForgeEvents());
         LOGGER.info("AuthProbe: loading...");
     }

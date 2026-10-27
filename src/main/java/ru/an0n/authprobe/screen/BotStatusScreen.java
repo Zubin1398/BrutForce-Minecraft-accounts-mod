@@ -8,8 +8,12 @@ import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
 import ru.an0n.authprobe.BotController;
 import ru.an0n.authprobe.ProbeConfig;
+import ru.an0n.authprobe.ProbeTarget;
 import ru.an0n.authprobe.proxy.ProxyTunnel;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /**
@@ -20,6 +24,12 @@ import java.util.Locale;
  * @author AN0N
  */
 public final class BotStatusScreen extends Screen {
+    /**
+     * Format of the skip mark time, local zone.
+     */
+    private static final DateTimeFormatter SKIP_TIME =
+            DateTimeFormatter.ofPattern("dd.MM HH:mm").withZone(ZoneId.systemDefault());
+
     /**
      * Creates a new status screen.
      */
@@ -100,6 +110,18 @@ public final class BotStatusScreen extends Screen {
                 centerX, y, 0xFF_FF_FF_FF);
         y += 13;
 
+        // Skip mark of the current nickname, if the last nickname-level kick left one.
+        ProbeTarget currentTarget = config.primary();
+        if (currentTarget.hasSkip()) {
+            String mark = currentTarget.skipIsInvalid()
+                    ? Component.translatable("authprobe.skip.invalid").getString()
+                    : Component.translatable("authprobe.skip.online",
+                    SKIP_TIME.format(Instant.ofEpochMilli(currentTarget.skipAt()))).getString();
+            graphics.drawCenteredString(this.font, mark, centerX, y,
+                    currentTarget.skipIsInvalid() ? 0xFF_FF_66_66 : 0xFF_FF_AA_33);
+            y += 12;
+        }
+
         // Proxy position, when routing is enabled.
         if (config.proxyEnabled() && !config.proxies().isEmpty()) {
             graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.proxyCounter",
@@ -160,12 +182,23 @@ public final class BotStatusScreen extends Screen {
                 centerX, y, 0xFF_FF_D0_00);
         y += 16;
 
-        // Disconnect reason.
+        // Server pauses waited out by the smart delay.
+        if (BotController.pauseCount() > 0) {
+            graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.pauses",
+                    BotController.pauseCount()), centerX, y, 0xFF_88_CC_FF);
+            y += 12;
+        }
+
+        // Disconnect reason and how the probe read it.
         String reason = BotController.kickReason();
         if (!reason.isEmpty()) {
             y = this.drawWrappedCentered(graphics,
                     Component.translatable("authprobe.status.reason", reason).getString(),
                     centerX, y, panelWidth - 24, 0xFF_B0_B0_B0, this.height - 86);
+            graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.classified",
+                            Component.translatable(BotController.kickClassKey())),
+                    centerX, y, 0xFF_A0_A0_A0);
+            y += 12;
         }
 
         // Reconnect countdown.

@@ -175,6 +175,9 @@ public final class ForgeEvents {
             return;
         }
 
+        // The pane filter follows the debug switch: local logs exist only while it is on.
+        ChatWatcher.setLogsOnly(ProbeConfig.INSTANCE.logsOnly() && ProbeConfig.INSTANCE.debugLogs());
+
         BotController.tick();
 
         // Persist settings and pattern banks typed into the UI, including on an abrupt exit.

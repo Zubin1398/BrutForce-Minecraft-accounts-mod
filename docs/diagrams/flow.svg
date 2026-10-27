@@ -19,6 +19,7 @@
   <rect x="0" y="0" width="1200" height="4" rx="2" fill="#38bdf8"/>
   <text x="60" y="52" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#e6f1ff">Как идёт прогон</text>
   <text x="60" y="76" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#8fb8dd">Один пароль — одна отправка. Кик тоже считается попыткой.</text>
+  <text x="1140" y="76" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#88ccff">Пауза сервера (умная задержка) → тот же пароль ещё раз</text>
 
   <g font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">
     <rect x="60" y="110" width="196" height="74" rx="12" fill="#0f2131" stroke="#2f6484"/>
@@ -35,7 +36,7 @@
 
     <rect x="778" y="110" width="176" height="74" rx="12" fill="#0f2131" stroke="#2f6484"/>
     <text x="866" y="140" text-anchor="middle" fill="#9fd8ff">Ответ сервера</text>
-    <text x="866" y="162" text-anchor="middle" font-size="12" fill="#7fa6c6">успех / провал / кик</text>
+    <text x="866" y="162" text-anchor="middle" font-size="12" fill="#7fa6c6">успех / провал / пауза / кик</text>
 
     <rect x="1004" y="110" width="136" height="74" rx="12" fill="#0c241b" stroke="#34d399"/>
     <text x="1072" y="140" text-anchor="middle" fill="#9af0c4">Пароль найден</text>
