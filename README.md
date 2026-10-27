@@ -4,6 +4,8 @@
 
 # 🔐 AuthProbe — Bruteforce аккаунтов в minecraft *перебор паролей
 
+*Совместим с [TAB-Parser-mod-Forge-1.20.1](https://github.com/Zubin1398/TAB-Parser-mod-Forge-1.20.1/tree/main) / [Step-by-Step-Checker](https://github.com/Zubin1398/Step-by-Step-Checker/tree/main)
+
 <img src="./docs/diagrams/readme-hero.svg" width="100%" alt="AuthProbe — мульти-ник, одна попытка на пароль, ротация proxy, Minecraft 1.20.1 Forge"/>
 
 </div>
