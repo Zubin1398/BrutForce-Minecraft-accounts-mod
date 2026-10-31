@@ -8,15 +8,19 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
+import ru.an0n.authprobe.AuthProbe;
 import ru.an0n.authprobe.BotController;
 import ru.an0n.authprobe.ChatWatcher;
 import ru.an0n.authprobe.ProbeConfig;
 import ru.an0n.authprobe.ProbeTarget;
 import ru.an0n.authprobe.ServerConnector;
+import ru.an0n.authprobe.SuccessExport;
 import ru.an0n.authprobe.proxy.ProxyTunnel;
 import ru.an0n.authprobe.utils.Nicks;
 import ru.an0n.authprobe.utils.PasswordList;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -35,9 +39,34 @@ public final class ProbeSetupScreen extends Screen {
     private static final int[] DELAYS = {0, 100, 200, 400, 800, 1200, 1500, 2000, 3000};
 
     /**
+     * Selectable verdict timeouts, milliseconds.
+     */
+    private static final int[] TIMEOUTS = {1000, 2000, 3000, 5000, 8000, 10_000, 15_000};
+
+    /**
+     * Selectable hold limits, milliseconds.
+     */
+    private static final int[] HOLD_LIMITS = {5_000, 10_000, 15_000, 20_000};
+
+    /**
+     * Bulk-delete action: profiles marked 2FA.
+     */
+    private static final int DELETE_2FA = 1;
+
+    /**
+     * Bulk-delete action: profiles whose passwords all failed.
+     */
+    private static final int DELETE_EXHAUSTED = 2;
+
+    /**
+     * How long a bulk-delete button waits for the confirming click, milliseconds.
+     */
+    private static final long DELETE_CONFIRM_MS = 4000L;
+
+    /**
      * Selectable reconnect delays, milliseconds.
      */
-    private static final int[] RECONNECTS = {0, 3000, 5000, 8000, 15_000, 30_000};
+    private static final int[] RECONNECTS = {0, 1000, 2000, 3000, 5000, 8000, 15_000, 30_000};
 
     /**
      * Top of the option column, GUI pixels.
@@ -52,13 +81,19 @@ public final class ProbeSetupScreen extends Screen {
     /**
      * Amount of option rows. The chat pane starts under them.
      */
-    private static final int OPTION_ROWS = 10;
+    private static final int OPTION_ROWS = 13;
 
     /**
      * Format of the skip mark time, local zone.
      */
     private static final DateTimeFormatter SKIP_TIME =
             DateTimeFormatter.ofPattern("dd.MM HH:mm").withZone(ZoneId.systemDefault());
+
+    /**
+     * Format of the success export time, local zone.
+     */
+    private static final DateTimeFormatter EXPORT_TIME =
+            DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm").withZone(ZoneId.systemDefault());
 
     /**
      * Parent screen.
@@ -151,6 +186,16 @@ public final class ProbeSetupScreen extends Screen {
     private Button delayButton;
 
     /**
+     * Verdict timeout button.
+     */
+    private Button timeoutButton;
+
+    /**
+     * Hold limit button.
+     */
+    private Button holdButton;
+
+    /**
      * Smart delay toggle, placed right before the delay button.
      */
     private Button smartDelayButton;
@@ -166,6 +211,36 @@ public final class ProbeSetupScreen extends Screen {
     private Button logsOnlyButton;
 
     /**
+     * Deletes every profile marked 2FA.
+     */
+    private Button deleteTwoFactorButton;
+
+    /**
+     * Deletes every profile whose passwords all failed.
+     */
+    private Button deleteExhaustedButton;
+
+    /**
+     * Exports successful nicknames with their passwords to a text file.
+     */
+    private Button exportButton;
+
+    /**
+     * Sorts the profiles of the active server by status.
+     */
+    private Button sortButton;
+
+    /**
+     * Bulk-delete action waiting for a confirming click, zero when none.
+     */
+    private int deleteConfirmAction;
+
+    /**
+     * Deadline of the confirming click.
+     */
+    private long deleteConfirmUntil;
+
+    /**
      * Reconnect button.
      */
     private Button reconnectButton;
@@ -179,6 +254,11 @@ public final class ProbeSetupScreen extends Screen {
      * Auto-reconnect button.
      */
     private Button autoReconnectButton;
+
+    /**
+     * Auto-swap button.
+     */
+    private Button autoSwapButton;
 
     /**
      * Debug logs button.
@@ -221,6 +301,11 @@ public final class ProbeSetupScreen extends Screen {
     private boolean chatScrollbarDragging;
 
     /**
+     * Last address value already reported as duplicated.
+     */
+    private String lastDuplicateAddressWarned = "";
+
+    /**
      * Grab offset inside the scrollbar thumb.
      */
     private double chatScrollbarGrab;
@@ -246,7 +331,7 @@ public final class ProbeSetupScreen extends Screen {
         int rightX = leftX + columnWidth + 10;
 
         // Address with a server selector.
-        int addressWidth = Math.max(40, columnWidth - 82);
+        int addressWidth = Math.max(40, columnWidth - 102);
         this.addressBox = new EditBox(this.font, leftX, 32, addressWidth, 18, Component.translatable("authprobe.address"));
         this.addressBox.setHint(Component.translatable("authprobe.address.hint"));
         this.addressBox.setMaxLength(256);
@@ -254,6 +339,7 @@ public final class ProbeSetupScreen extends Screen {
         this.addressBox.setResponder(value -> {
             config.address(value);
             this.addressValid = ServerConnector.isValidAddress(value);
+            this.warnDuplicateAddress(value);
         });
         this.addRenderableWidget(this.addressBox);
 
@@ -270,13 +356,21 @@ public final class ProbeSetupScreen extends Screen {
         this.serverRemoveButton = this.addRenderableWidget(Button.builder(Component.literal("-"),
                         pressed -> this.removeServer())
                 .bounds(serverButtonsX + 60, 32, 18, 18).build());
+        this.addRenderableWidget(Button.builder(Component.literal("T"),
+                        pressed -> {
+                            this.saveFields();
+                            this.minecraft.setScreen(new ProbePatternsScreen(this));
+                        })
+                .bounds(serverButtonsX + 80, 32, 18, 18)
+                .tooltip(Tooltip.create(Component.translatable("authprobe.server.patterns.tip")))
+                .build());
         this.serverPrevButton.setTooltip(tooltip("authprobe.server.prev.tip"));
         this.serverNextButton.setTooltip(tooltip("authprobe.server.next.tip"));
         this.serverAddButton.setTooltip(tooltip("authprobe.server.add.tip"));
         this.serverRemoveButton.setTooltip(tooltip("authprobe.server.remove.tip"));
 
         // Nickname with a target selector.
-        int nickWidth = Math.max(30, columnWidth - 102);
+        int nickWidth = Math.max(30, columnWidth - 204);
         this.nickBox = new EditBox(this.font, leftX, 64, nickWidth, 18, Component.translatable("authprobe.nick"));
         this.nickBox.setHint(Component.translatable("authprobe.nick.hint"));
         this.nickBox.setMaxLength(16);
@@ -301,17 +395,35 @@ public final class ProbeSetupScreen extends Screen {
                         Component.literal("X").withStyle(ChatFormatting.RED),
                         pressed -> this.clearProfiles())
                 .bounds(nickButtonsX + 80, 64, 18, 18).build());
+        this.deleteTwoFactorButton = this.addRenderableWidget(Button.builder(
+                        Component.literal("2FA").withStyle(ChatFormatting.GOLD),
+                        pressed -> this.requestDelete(DELETE_2FA))
+                .bounds(nickButtonsX + 100, 64, 26, 18).build());
+        this.deleteExhaustedButton = this.addRenderableWidget(Button.builder(
+                        Component.literal("0").withStyle(ChatFormatting.GRAY),
+                        pressed -> this.requestDelete(DELETE_EXHAUSTED))
+                .bounds(nickButtonsX + 128, 64, 18, 18).build());
+        this.exportButton = this.addRenderableWidget(Button.builder(
+                        Component.literal("TXT").withStyle(ChatFormatting.GREEN),
+                        pressed -> this.exportSuccess())
+                .bounds(nickButtonsX + 148, 64, 28, 18).build());
+        this.sortButton = this.addRenderableWidget(Button.builder(
+                        Component.literal("↑↓"),
+                        pressed -> this.sortProfiles())
+                .bounds(nickButtonsX + 178, 64, 22, 18).build());
         this.prevNickButton.setTooltip(tooltip("authprobe.nick.prev.tip"));
         this.nextNickButton.setTooltip(tooltip("authprobe.nick.next.tip"));
         this.addNickButton.setTooltip(tooltip("authprobe.nick.add.tip"));
         this.removeNickButton.setTooltip(tooltip("authprobe.nick.remove.tip"));
         this.clearProfilesButton.setTooltip(tooltip("authprobe.nick.clear.tip"));
+        this.deleteTwoFactorButton.setTooltip(tooltip("authprobe.nick.delete2fa.tip"));
+        this.deleteExhaustedButton.setTooltip(tooltip("authprobe.nick.deleteFailed.tip"));
 
         // Clears the persisted skip mark of the current nickname; placed next to the mark.
         this.clearSkipButton = this.addRenderableWidget(Button.builder(
                         Component.literal("×").withStyle(ChatFormatting.YELLOW),
                         pressed -> {
-                            ProbeConfig.INSTANCE.clearSkip(ProbeConfig.INSTANCE.activeIndex());
+                            ProbeConfig.INSTANCE.clearMark(ProbeConfig.INSTANCE.activeIndex());
                             this.refreshOptions();
                         })
                 .bounds(leftX, 51, 11, 11).build());
@@ -369,41 +481,59 @@ public final class ProbeSetupScreen extends Screen {
                 pressed -> {
                     config.reconnectDelayMs(nextOf(RECONNECTS, config.reconnectDelayMs()));
                     this.refreshOptions();
+                }).bounds(optionX, optionY + step * 7, optionWidth, 16).build());
+        this.timeoutButton = this.addRenderableWidget(Button.builder(Component.empty(),
+                pressed -> {
+                    config.timeoutMs(nextOf(TIMEOUTS, config.timeoutMs()));
+                    this.refreshOptions();
                 }).bounds(optionX, optionY + step * 5, optionWidth, 16).build());
+        this.holdButton = this.addRenderableWidget(Button.builder(Component.empty(),
+                pressed -> {
+                    config.holdLimitMs(nextOf(HOLD_LIMITS, config.holdLimitMs()));
+                    this.refreshOptions();
+                }).bounds(optionX, optionY + step * 6, optionWidth, 16).build());
         this.autoStartButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.autoStart(!config.autoStart());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 6, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 8, optionWidth, 16).build());
+        this.autoSwapButton = this.addRenderableWidget(Button.builder(Component.empty(),
+                pressed -> {
+                    config.autoSwap(!config.autoSwap());
+                    this.refreshOptions();
+                }).bounds(optionX, optionY + step * 9, optionWidth, 16).build());
         this.autoReconnectButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.autoReconnect(!config.autoReconnect());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 9, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 12, optionWidth, 16).build());
         this.debugButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.debugLogs(!config.debugLogs());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 7, optionWidth, 16).build());
+                }).bounds(optionX, optionY + step * 10, optionWidth, 16).build());
         int proxyWidth = Math.max(40, optionWidth - 22);
         this.proxyButton = this.addRenderableWidget(Button.builder(Component.empty(),
                 pressed -> {
                     config.proxyEnabled(!config.proxyEnabled());
                     this.refreshOptions();
-                }).bounds(optionX, optionY + step * 8, proxyWidth, 16).build());
+                }).bounds(optionX, optionY + step * 11, proxyWidth, 16).build());
         this.proxyGearButton = this.addRenderableWidget(Button.builder(Component.literal("..."),
                         pressed -> {
                             this.saveFields();
                             this.minecraft.setScreen(new ProxyScreen(this));
                         })
-                .bounds(optionX + proxyWidth + 2, optionY + step * 8, 18, 16).build());
+                .bounds(optionX + proxyWidth + 2, optionY + step * 11, 18, 16).build());
         this.modButton.setTooltip(tooltip("authprobe.option.mod.tip"));
         this.macroButton.setTooltip(tooltip("authprobe.option.macro.tip"));
         this.modeButton.setTooltip(tooltip("authprobe.option.mode.tip"));
         this.smartDelayButton.setTooltip(tooltip("authprobe.option.smartdelay.tip"));
         this.delayButton.setTooltip(tooltip("authprobe.option.delay.tip"));
+        this.timeoutButton.setTooltip(tooltip("authprobe.option.timeout.tip"));
+        this.holdButton.setTooltip(tooltip("authprobe.option.hold.tip"));
         this.reconnectButton.setTooltip(tooltip("authprobe.option.reconnect.tip"));
         this.autoStartButton.setTooltip(tooltip("authprobe.option.autostart.tip"));
+        this.autoSwapButton.setTooltip(tooltip("authprobe.option.autoswap.tip"));
         this.autoReconnectButton.setTooltip(tooltip("authprobe.option.autoreconnect.tip"));
         this.debugButton.setTooltip(tooltip("authprobe.option.debug.tip"));
         this.proxyButton.setTooltip(tooltip("authprobe.option.proxy.tip"));
@@ -430,7 +560,10 @@ public final class ProbeSetupScreen extends Screen {
         this.addRenderableWidget(stopButton);
 
         Button importButton = Button.builder(Component.translatable("authprobe.button.import"),
-                        pressed -> this.minecraft.setScreen(new ImportScreen(this, true)))
+                        pressed -> {
+                            this.saveFields();
+                            this.minecraft.setScreen(new ImportScreen(this, true));
+                        })
                 .bounds(buttonX + (buttonWidth + 4) * 2, buttonY, buttonWidth, 20).build();
         importButton.setTooltip(tooltip("authprobe.button.import.tip"));
         this.addRenderableWidget(importButton);
@@ -477,6 +610,13 @@ public final class ProbeSetupScreen extends Screen {
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
         ProbeConfig config = ProbeConfig.INSTANCE;
+
+        // Expire an armed bulk-delete button.
+        if (this.deleteConfirmAction != 0 && System.currentTimeMillis() > this.deleteConfirmUntil) {
+            this.deleteConfirmAction = 0;
+            this.updateDeleteButtons();
+        }
+
         int leftX = 10;
         int columnWidth = Math.max(80, (this.width - 30) / 2);
         int rightX = leftX + columnWidth + 10;
@@ -576,7 +716,38 @@ public final class ProbeSetupScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0 && this.startChatScrollDrag(mouseX, mouseY)) return true;
+        if (button == 0 && this.openPatternPicker(mouseX, mouseY)) return true;
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    /**
+     * Opens the "add to patterns" picker for the chat line under the cursor.
+     *
+     * @param mouseX Mouse X
+     * @param mouseY Mouse Y
+     * @return Whether a line was clicked
+     */
+    private boolean openPatternPicker(double mouseX, double mouseY) {
+        assert this.minecraft != null;
+        int left = this.chatPaneLeft();
+        int width = this.chatPaneWidth();
+        int top = this.chatPaneTop();
+        int bottom = this.chatPaneBottom();
+        if (bottom <= top + 6) return false;
+        if (mouseX < left || mouseX > left + width - 8) return false;
+        if (mouseY < top || mouseY >= bottom) return false;
+
+        int capacity = Math.max(1, (bottom - top) / 9);
+        List<Visual> lines = this.visualLines(ChatWatcher.snapshot(), width);
+        int maxScroll = Math.max(0, lines.size() - capacity);
+        int start = Math.max(0, lines.size() - capacity - Math.min(this.chatScroll, maxScroll));
+        int index = start + (int) ((mouseY - top) / 9);
+        if (index < 0 || index >= lines.size()) return false;
+
+        ChatWatcher.Line source = lines.get(index).source();
+        if (source.kind() == ChatWatcher.Kind.LOCAL) return false;
+        this.minecraft.setScreen(new PatternPickScreen(this, source.text()));
+        return true;
     }
 
     @Override
@@ -734,7 +905,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
             Visual line = lines.get(i);
             int color = switch (line.kind()) {
                 case ACTION_BAR -> 0xFF_88_88_FF;
-                case LOCAL -> 0xFF_FF_D7_00;
+                case LOCAL -> line.source().color() == 0 ? 0xFF_FF_D7_00 : line.source().color();
                 default -> 0xFF_E0E0E0;
             };
             graphics.drawString(this.font, line.text(), x, y, color, false);
@@ -763,7 +934,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         List<Visual> result = new ArrayList<>();
         for (ChatWatcher.Line line : lines) {
             for (String part : wrap(line.text(), width)) {
-                result.add(new Visual(part, line.kind()));
+                result.add(new Visual(part, line.kind(), line));
             }
         }
         return result;
@@ -805,7 +976,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
      * @param text Line text
      * @param kind Where the line came from
      */
-    private record Visual(String text, ChatWatcher.Kind kind) {
+    private record Visual(String text, ChatWatcher.Kind kind, ChatWatcher.Line source) {
     }
 
     /**
@@ -825,8 +996,13 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
 
         // Keep the skip mark unless the nickname text itself changed: the mark described the old name.
         ProbeTarget current = config.primary();
+        List<String> parsed = PasswordList.parse(this.passwordBox.getValue());
         ProbeTarget updated = current.withNick(this.nickBox.getValue().trim())
-                .withPasswords(PasswordList.parse(this.passwordBox.getValue()));
+                .withPasswords(parsed);
+        if (!current.passwords().equals(parsed)) {
+            // A different password list makes the old result stale.
+            updated = updated.withResult("");
+        }
         config.primary(updated);
     }
 
@@ -851,6 +1027,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.saveFields();
         ProbeConfig.INSTANCE.addTarget();
         this.loadTargetFields();
+        this.refreshOptions();
     }
 
     /**
@@ -860,6 +1037,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.saveFields();
         ProbeConfig.INSTANCE.removeActiveTarget();
         this.loadTargetFields();
+        this.refreshOptions();
     }
 
     /**
@@ -873,6 +1051,114 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.loadTargetFields();
         this.passwordCount = 0;
         this.nickValid = false;
+        this.refreshOptions();
+    }
+
+    /**
+     * Warns once per typed value when the address is already used by another server.
+     *
+     * @param value Current address field value
+     */
+    private void warnDuplicateAddress(String value) {
+        String trimmed = value == null ? "" : value.trim();
+        int duplicates = ProbeConfig.INSTANCE.duplicateAddressCount(trimmed);
+        if (duplicates <= 1) {
+            this.lastDuplicateAddressWarned = "";
+            return;
+        }
+        if (trimmed.equalsIgnoreCase(this.lastDuplicateAddressWarned)) return;
+        this.lastDuplicateAddressWarned = trimmed;
+        BotController.warn(Component.literal("адрес " + trimmed
+                + " уже есть у другого сервера — ники и шаблоны у них разные"));
+    }
+
+    /**
+     * Handles a bulk-delete button: the first click arms it, the second one inside
+     * {@link #DELETE_CONFIRM_MS} performs the deletion.
+     *
+     * @param action {@link #DELETE_2FA} or {@link #DELETE_EXHAUSTED}
+     */
+    private void requestDelete(int action) {
+        long now = System.currentTimeMillis();
+        if (this.deleteConfirmAction == action && now <= this.deleteConfirmUntil) {
+            this.deleteConfirmAction = 0;
+            ProbeConfig config = ProbeConfig.INSTANCE;
+            int removed = action == DELETE_2FA
+                    ? config.removeTargetsWithKind(ProbeTarget.KIND_2FA)
+                    : config.removeExhaustedTargets();
+            config.save();
+            this.loadTargetFields();
+            this.refreshOptions();
+            String label = action == DELETE_2FA ? "с меткой 2FA" : "без верного пароля";
+            BotController.announce(removed == 0
+                    ? "профилей " + label + " нет"
+                    : "удалено профилей (" + label + "): " + removed);
+            return;
+        }
+        this.deleteConfirmAction = action;
+        this.deleteConfirmUntil = now + DELETE_CONFIRM_MS;
+        this.updateDeleteButtons();
+    }
+
+    /**
+     * Refreshes the bulk-delete labels: a pending action shows a red question mark.
+     */
+    private void updateDeleteButtons() {
+        if (this.deleteTwoFactorButton == null || this.deleteExhaustedButton == null) return;
+        boolean armTwoFactor = this.deleteConfirmAction == DELETE_2FA;
+        boolean armExhausted = this.deleteConfirmAction == DELETE_EXHAUSTED;
+        this.deleteTwoFactorButton.setMessage(Component.literal(armTwoFactor ? "?" : "2FA")
+                .withStyle(armTwoFactor ? ChatFormatting.RED : ChatFormatting.GOLD));
+        this.deleteExhaustedButton.setMessage(Component.literal(armExhausted ? "?" : "0")
+                .withStyle(armExhausted ? ChatFormatting.RED : ChatFormatting.GRAY));
+    }
+
+    /**
+     * Stable-sorts the profiles of the active server by status, keeping the current profile
+     * selected. Blocked while the probe is running.
+     */
+    private void sortProfiles() {
+        if (BotController.armed()) return;
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        if (config.targets().size() < 2) return;
+
+        // Keep unsaved password edits before the records are reordered.
+        this.saveFields();
+        boolean changed = config.sortTargetsByStatus();
+        if (changed) {
+            config.save();
+            this.loadTargetFields();
+            BotController.announce(Component.translatable("authprobe.nick.sort.done"));
+        } else {
+            BotController.announce(Component.translatable("authprobe.nick.sort.same"));
+        }
+        this.refreshOptions();
+    }
+
+    /**
+     * Writes every successful nickname of every server, with its password, to
+     * {@code config/authprobe-success.txt}.
+     */
+    private void exportSuccess() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        int count = SuccessExport.count(config.servers());
+        if (count == 0) {
+            BotController.warn(Component.translatable("authprobe.export.empty"));
+            return;
+        }
+
+        Path target = ProbeConfig.successFile();
+        String shown = "config/" + target.getFileName();
+        String stamp = EXPORT_TIME.format(Instant.now());
+        try {
+            SuccessExport.write(config.servers(), stamp, target);
+            Component message = Component.translatable("authprobe.export.done", count, shown);
+            BotController.announce(message);
+            BotController.notify(message);
+        } catch (IOException exception) {
+            AuthProbe.logger().warn("AuthProbe: unable to write {}", target, exception);
+            BotController.warn(Component.translatable("authprobe.export.failed", shown));
+        }
     }
 
     /**
@@ -932,6 +1218,13 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
     }
 
     /**
+     * Reloads the fields and option buttons after an import changed the profile list.
+     */
+    public void reloadFromConfig() {
+        this.loadServerFields();
+    }
+
+    /**
      * Loads the active target into the text fields.
      */
     private void loadTargetFields() {
@@ -954,22 +1247,23 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
      */
     private void renderSkipMark(GuiGraphics graphics, ProbeConfig config, Component slot, int leftX, int columnWidth) {
         ProbeTarget target = config.primary();
-        if (!target.hasSkip()) return;
+        Component mark = markText(target);
+        if (mark == null) return;
         int x = leftX + this.font.width(slot) + 10;
         int maxWidth = Math.max(20, leftX + columnWidth - x - 14);
-        int color = target.skipIsInvalid() || target.isTwoFactor() ? 0xFF_FF_66_66 : 0xFF_FF_AA_33;
-        String text = this.font.plainSubstrByWidth(skipMarkText(target).getString(), maxWidth);
-        graphics.drawString(this.font, text, x, 54, color, false);
+        String text = this.font.plainSubstrByWidth(mark.getString(), maxWidth);
+        graphics.drawString(this.font, text, x, 54, markColor(target), false);
     }
 
     /**
-     * Places the clear button right after the skip mark and hides it when there is no mark.
+     * Places the clear button right after the mark and hides it when there is nothing to clear.
      */
     private void refreshSkipButton() {
         if (this.clearSkipButton == null) return;
         ProbeConfig config = ProbeConfig.INSTANCE;
         ProbeTarget target = config.primary();
-        boolean marked = target.hasSkip();
+        Component mark = markText(target);
+        boolean marked = mark != null;
         this.clearSkipButton.visible = marked;
         this.clearSkipButton.active = marked;
         if (!marked) return;
@@ -977,21 +1271,44 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         Component slot = Component.translatable("authprobe.nick.slot",
                 config.activeIndex() + 1, config.targets().size());
         int columnWidth = Math.max(80, (this.width - 30) / 2);
-        int x = 10 + this.font.width(slot) + 10 + this.font.width(skipMarkText(target)) + 4;
+        int x = 10 + this.font.width(slot) + 10 + this.font.width(mark) + 4;
         this.clearSkipButton.setX(Math.min(x, 10 + columnWidth - 11));
     }
 
     /**
-     * Builds the mark text for a target.
+     * Builds the status text for a target: a skip mark first, then the probe result.
      *
-     * @param target Target with a mark
-     * @return Localized mark
+     * @param target Target
+     * @return Localized text, {@code null} when the target has neither
      */
-    private static Component skipMarkText(ProbeTarget target) {
-        if (target.skipIsInvalid()) return Component.translatable("authprobe.skip.invalid");
-        if (target.isTwoFactor()) return Component.translatable("authprobe.skip.2fa");
-        String when = SKIP_TIME.format(Instant.ofEpochMilli(target.skipAt()));
-        return Component.translatable("authprobe.skip.online", when);
+    private static Component markText(ProbeTarget target) {
+        if (ProbeTarget.RESULT_FOUND.equals(target.result())) {
+            return Component.translatable("authprobe.result.found");
+        }
+        if (target.hasSkip()) {
+            if (target.skipIsInvalid()) return Component.translatable("authprobe.skip.invalid");
+            if (target.isTwoFactor()) return Component.translatable("authprobe.skip.2fa");
+            String when = SKIP_TIME.format(Instant.ofEpochMilli(target.skipAt()));
+            return Component.translatable("authprobe.skip.online", when);
+        }
+        if (target.isExhausted()) {
+            return Component.translatable("authprobe.result.exhausted");
+        }
+        return null;
+    }
+
+    /**
+     * Gets the colour of the status text.
+     *
+     * @param target Target
+     * @return ARGB colour
+     */
+    private static int markColor(ProbeTarget target) {
+        if (ProbeTarget.RESULT_FOUND.equals(target.result())) return 0xFF_55_FF_88;
+        if (target.hasSkip()) {
+            return target.skipIsInvalid() || target.isTwoFactor() ? 0xFF_FF_66_66 : 0xFF_FF_AA_33;
+        }
+        return 0xFF_A0_A0_A0;
     }
 
     /**
@@ -1005,14 +1322,33 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.smartDelayButton.setMessage(Component.translatable("authprobe.option.smartdelay", onOff(config.smartDelay())));
         this.delayButton.setMessage(Component.translatable("authprobe.option.delay", formatDelay(config.delayMs())));
         this.delayButton.active = !config.smartDelay();
+        this.timeoutButton.setMessage(Component.translatable("authprobe.option.timeout", config.timeoutMs() / 1000));
+        this.holdButton.setMessage(Component.translatable("authprobe.option.hold", config.holdLimitMs() / 1000));
         this.reconnectButton.setMessage(Component.translatable("authprobe.option.reconnect", config.reconnectDelayMs() / 1000));
         this.autoStartButton.setMessage(Component.translatable("authprobe.option.autostart", onOff(config.autoStart())));
+        this.autoSwapButton.setMessage(Component.translatable("authprobe.option.autoswap", onOff(config.autoSwap())));
         this.autoReconnectButton.setMessage(Component.translatable("authprobe.option.autoreconnect", onOff(config.autoReconnect())));
         this.debugButton.setMessage(Component.translatable("authprobe.option.debug", onOff(config.debugLogs())));
         this.proxyButton.setMessage(Component.translatable("authprobe.option.proxy",
                 onOff(config.modEnabled() && config.proxyEnabled())));
         this.proxyButton.active = config.modEnabled();
         this.refreshSkipButton();
+        this.updateDeleteButtons();
+        if (this.exportButton != null) {
+            int exportCount = SuccessExport.count(config.servers());
+            this.exportButton.active = exportCount > 0;
+            this.exportButton.setTooltip(Tooltip.create(Component.translatable(
+                    exportCount > 0 ? "authprobe.nick.export.tip" : "authprobe.nick.export.none",
+                    exportCount)));
+        }
+        if (this.sortButton != null) {
+            boolean running = BotController.armed();
+            boolean sortable = config.targets().size() > 1;
+            this.sortButton.active = !running && sortable;
+            this.sortButton.setTooltip(Tooltip.create(Component.translatable(
+                    running ? "authprobe.nick.sort.locked"
+                            : sortable ? "authprobe.nick.sort.tip" : "authprobe.nick.sort.none")));
+        }
 
         // Server switching is locked while the probe owns the session.
         boolean canSwitch = !BotController.armed();

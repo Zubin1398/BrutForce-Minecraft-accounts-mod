@@ -116,6 +116,16 @@ final class MultilineTextBox extends AbstractWidget {
     private int scroll;
 
     /**
+     * Whether the scrollbar thumb is being dragged.
+     */
+    private boolean scrollbarDragging;
+
+    /**
+     * Grab offset inside the scrollbar thumb.
+     */
+    private double scrollbarGrab;
+
+    /**
      * Maximum amount of characters.
      */
     private int maxLength = 200_000;
@@ -256,6 +266,16 @@ final class MultilineTextBox extends AbstractWidget {
 
     @Override
     public void onClick(double mouseX, double mouseY) {
+        if (this.isOverScrollbar(mouseX, mouseY) && this.maxScroll() > 0) {
+            int thumbY = this.scrollbarThumbY();
+            int thumbHeight = this.scrollbarThumbHeight();
+            this.scrollbarGrab = mouseY >= thumbY && mouseY <= thumbY + thumbHeight
+                    ? mouseY - thumbY
+                    : thumbHeight / 2.0D;
+            this.scrollbarDragging = true;
+            this.scrollFromMouse(mouseY);
+            return;
+        }
         this.setFocused(true);
         int[] position = this.positionAt(mouseX, mouseY);
         this.cursorLine = position[0];
@@ -268,6 +288,10 @@ final class MultilineTextBox extends AbstractWidget {
 
     @Override
     public void onRelease(double mouseX, double mouseY) {
+        if (this.scrollbarDragging) {
+            this.scrollbarDragging = false;
+            return;
+        }
         this.dragging = false;
         if (this.anchorLine == this.cursorLine && this.anchorCol == this.cursorCol) {
             this.anchorLine = -1;
@@ -277,11 +301,79 @@ final class MultilineTextBox extends AbstractWidget {
 
     @Override
     protected void onDrag(double mouseX, double mouseY, double dragX, double dragY) {
+        if (this.scrollbarDragging) {
+            this.scrollFromMouse(mouseY);
+            return;
+        }
         if (!this.dragging) return;
         int[] position = this.positionAt(mouseX, mouseY);
         this.cursorLine = position[0];
         this.cursorCol = position[1];
         this.ensureCursorVisible();
+    }
+
+    /**
+     * Checks whether the mouse is over the scrollbar strip.
+     *
+     * @param mouseX Mouse X
+     * @param mouseY Mouse Y
+     * @return Whether the scrollbar is under the cursor
+     */
+    private boolean isOverScrollbar(double mouseX, double mouseY) {
+        return mouseX >= this.getX() + this.getWidth() - 6
+                && mouseX <= this.getX() + this.getWidth()
+                && mouseY >= this.getY() && mouseY <= this.getY() + this.getHeight();
+    }
+
+    /**
+     * Gets the scrollbar track height.
+     *
+     * @return Track height in pixels
+     */
+    private int scrollbarTrackHeight() {
+        return this.getHeight() - PADDING * 2;
+    }
+
+    /**
+     * Gets the scrollbar thumb height.
+     *
+     * @return Thumb height in pixels
+     */
+    private int scrollbarThumbHeight() {
+        int track = scrollbarTrackHeight();
+        return Math.max(8, track * this.visibleLineCount() / Math.max(1, this.lines.size()));
+    }
+
+    /**
+     * Gets the scrollbar thumb top.
+     *
+     * @return Thumb top in pixels
+     */
+    private int scrollbarThumbY() {
+        int max = this.maxScroll();
+        if (max <= 0) return this.getY() + PADDING;
+        int track = scrollbarTrackHeight();
+        int thumb = scrollbarThumbHeight();
+        return this.getY() + PADDING + (track - thumb) * this.scroll / max;
+    }
+
+    /**
+     * Moves the scroll position from the mouse position on the track.
+     *
+     * @param mouseY Mouse Y
+     */
+    private void scrollFromMouse(double mouseY) {
+        int max = this.maxScroll();
+        if (max <= 0) return;
+        int track = scrollbarTrackHeight();
+        int thumb = scrollbarThumbHeight();
+        int travel = track - thumb;
+        if (travel <= 0) {
+            this.scroll = 0;
+            return;
+        }
+        double position = Math.max(0.0D, Math.min(travel, mouseY - this.getY() - PADDING - this.scrollbarGrab));
+        this.scroll = clamp((int) Math.round(position / travel * max), 0, max);
     }
 
     @Override
@@ -461,11 +553,11 @@ final class MultilineTextBox extends AbstractWidget {
         // Render the scrollbar.
         int max = this.maxScroll();
         if (max > 0) {
-            int trackHeight = height - PADDING * 2;
-            int barHeight = Math.max(8, trackHeight * visible / this.lines.size());
-            int barY = y + PADDING + (trackHeight - barHeight) * this.scroll / max;
-            graphics.fill(x + width - 3, y + PADDING, x + width - 2, y + height - PADDING, 0x40_FF_FF_FF);
-            graphics.fill(x + width - 3, barY, x + width - 2, barY + barHeight, COLOR_BAR);
+            int barX = x + width - 5;
+            int thumb = this.scrollbarThumbHeight();
+            int barY = this.scrollbarThumbY();
+            graphics.fill(barX, y + PADDING, barX + 4, y + height - PADDING, 0x40_FF_FF_FF);
+            graphics.fill(barX, barY, barX + 4, barY + thumb, COLOR_BAR);
         }
     }
 

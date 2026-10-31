@@ -3,8 +3,10 @@ package ru.an0n.authprobe.screen;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.ChatFormatting;
 import ru.an0n.authprobe.AuthProbe;
 import ru.an0n.authprobe.BotController;
 import ru.an0n.authprobe.ProbeConfig;
@@ -90,17 +92,31 @@ public final class ImportScreen extends Screen {
         this.addRenderableWidget(this.textBox);
 
         int buttonY = this.height - 26;
-        int buttonWidth = Math.max(70, (this.width - 40 - 8) / 3);
-        int buttonX = (this.width - (buttonWidth * 3 + 8)) / 2;
-        this.addRenderableWidget(Button.builder(Component.translatable("authprobe.import.browse"),
+        int buttonWidth = Math.max(60, (this.width - 40 - 12) / 4);
+        int buttonX = (this.width - (buttonWidth * 4 + 12)) / 2;
+        Button browseButton = Button.builder(Component.translatable("authprobe.import.browse"),
                         pressed -> this.browse())
-                .bounds(buttonX, buttonY, buttonWidth, 20).build());
-        this.addRenderableWidget(Button.builder(Component.translatable("authprobe.import.run"),
-                        pressed -> this.importFromField())
-                .bounds(buttonX + buttonWidth + 4, buttonY, buttonWidth, 20).build());
+                .bounds(buttonX, buttonY, buttonWidth, 20).build();
+        browseButton.setTooltip(Tooltip.create(Component.translatable("authprobe.import.browse.tip")));
+        this.addRenderableWidget(browseButton);
+
+        Button replaceButton = Button.builder(
+                        Component.translatable("authprobe.import.replace").withStyle(ChatFormatting.RED),
+                        pressed -> this.importFromField(false))
+                .bounds(buttonX + (buttonWidth + 4), buttonY, buttonWidth, 20).build();
+        replaceButton.setTooltip(Tooltip.create(Component.translatable("authprobe.import.replace.tip")));
+        this.addRenderableWidget(replaceButton);
+
+        Button addButton = Button.builder(
+                        Component.translatable("authprobe.import.add").withStyle(ChatFormatting.GREEN),
+                        pressed -> this.importFromField(true))
+                .bounds(buttonX + (buttonWidth + 4) * 2, buttonY, buttonWidth, 20).build();
+        addButton.setTooltip(Tooltip.create(Component.translatable("authprobe.import.add.tip")));
+        this.addRenderableWidget(addButton);
+
         this.addRenderableWidget(Button.builder(Component.translatable("authprobe.import.back"),
                         pressed -> this.onClose())
-                .bounds(buttonX + (buttonWidth + 4) * 2, buttonY, buttonWidth, 20).build());
+                .bounds(buttonX + (buttonWidth + 4) * 3, buttonY, buttonWidth, 20).build());
     }
 
     @Override
@@ -159,7 +175,6 @@ public final class ImportScreen extends Screen {
                 Path path = Paths.get(selected[0], selected[1]);
                 this.pathBox.setValue(path.toString());
                 this.error = "";
-                this.importPath(path);
             }
         } catch (Throwable throwable) {
             AuthProbe.logger().warn("AuthProbe: file dialog failed.", throwable);
@@ -169,11 +184,13 @@ public final class ImportScreen extends Screen {
 
     /**
      * Imports pasted text when present, otherwise the file from the path field.
+     *
+     * @param merge Whether to add and merge instead of replacing every profile
      */
-    private void importFromField() {
+    private void importFromField(boolean merge) {
         String pasted = this.textBox.getValue();
         if (!pasted.isBlank()) {
-            this.apply(NickImport.parse(pasted), "pasted text");
+            this.apply(NickImport.parse(pasted), "pasted text", merge);
             return;
         }
 
@@ -182,17 +199,18 @@ public final class ImportScreen extends Screen {
             this.error = Component.translatable("authprobe.import.empty").getString();
             return;
         }
-        this.importPath(Paths.get(raw));
+        this.importPath(Paths.get(raw), merge);
     }
 
     /**
      * Reads and applies a file.
      *
-     * @param path File path
+     * @param path  File path
+     * @param merge Whether to add and merge instead of replacing every profile
      */
-    private void importPath(Path path) {
+    private void importPath(Path path, boolean merge) {
         try {
-            this.apply(NickImport.parse(readText(path)), path.toString());
+            this.apply(NickImport.parse(readText(path)), path.toString(), merge);
         } catch (Throwable throwable) {
             AuthProbe.logger().warn("AuthProbe: import failed.", throwable);
             this.error = Component.translatable("authprobe.import.failed", String.valueOf(throwable.getMessage())).getString();
@@ -200,23 +218,48 @@ public final class ImportScreen extends Screen {
     }
 
     /**
-     * Applies parsed profiles.
+     * Applies parsed profiles, either replacing the list or adding to it.
      *
      * @param imported Imported targets
      * @param source   Source description for the log
+     * @param merge    Whether to add and merge instead of replacing every profile
      */
-    private void apply(List<ProbeTarget> imported, String source) {
+    private void apply(List<ProbeTarget> imported, String source, boolean merge) {
         if (imported.isEmpty()) {
             this.error = Component.translatable("authprobe.import.none").getString();
             return;
         }
-        ProbeConfig.INSTANCE.replaceTargets(imported);
-        ProbeConfig.INSTANCE.save();
-        int passwords = 0;
-        for (ProbeTarget target : imported) passwords += target.passwordCount();
-        BotController.announce("imported " + imported.size() + " nicks, " + passwords + " passwords");
-        AuthProbe.logger().info("AuthProbe: imported {} nicks and {} passwords from {}.",
-                imported.size(), passwords, source);
+
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        if (merge) {
+            var result = config.mergeTargets(imported);
+            if (!result.changed()) {
+                this.error = Component.translatable("authprobe.import.duplicates").getString();
+                return;
+            }
+            config.save();
+            String message = Component.translatable("authprobe.import.done.merge",
+                    result.added(), result.merged(), result.skipped()).getString();
+            BotController.announce(message);
+            BotController.notify(Component.literal(message));
+            AuthProbe.logger().info("AuthProbe: merged {} nicks from {}: {} added, {} merged, {} skipped, {} passwords added.",
+                    imported.size(), source, result.added(), result.merged(), result.skipped(),
+                    result.passwordsAdded());
+        } else {
+            config.replaceTargets(imported);
+            config.save();
+            int passwords = 0;
+            for (ProbeTarget target : imported) passwords += target.passwordCount();
+            String message = Component.translatable("authprobe.import.done.replace",
+                    imported.size(), passwords).getString();
+            BotController.announce(message);
+            BotController.notify(Component.literal(message));
+            AuthProbe.logger().info("AuthProbe: replaced with {} nicks and {} passwords from {}.",
+                    imported.size(), passwords, source);
+        }
+
+        // The setup screen is reused, so reload the imported list before going back.
+        if (this.parent instanceof ProbeSetupScreen setup) setup.reloadFromConfig();
         assert this.minecraft != null;
         this.minecraft.setScreen(this.parent);
     }

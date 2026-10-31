@@ -29,7 +29,7 @@ public final class ServerPause {
      * the first letter of a word such as "sent" or "сообщений".
      */
     private static final Pattern NUMBER_WITH_UNIT = Pattern.compile(
-            "(?iu)(\\d{1,5})\\s*(мс|ms|секунд\\w*|сек\\w*|мин\\w*|min\\w*|sec\\w*|s(?![a-z])|с(?![а-яё]))");
+            "(?iu)(\\d{1,5})\\s*(мс|ms|секунд[а-яё]*|сек[а-яё]*|мин[а-яё]*|min\\w*|sec\\w*|s(?![a-z])|с(?![а-яё]))");
 
     /**
      * A number no unit follows.

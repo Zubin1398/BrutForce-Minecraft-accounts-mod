@@ -13,8 +13,11 @@ import java.util.List;
  * @param skipAt    Time of that kick, milliseconds since the epoch, zero when none
  * @param skipKind  {@link #KIND_ONLINE} for a temporary kick, {@link #KIND_INVALID} for a
  *                  nickname the server will never accept
+ * @param result    {@link #RESULT_EXHAUSTED} when every password failed, {@link #RESULT_FOUND}
+ *                  when one was accepted, empty otherwise
  */
-public record ProbeTarget(String nick, List<String> passwords, String skipReason, long skipAt, String skipKind) {
+public record ProbeTarget(String nick, List<String> passwords, String skipReason, long skipAt, String skipKind,
+                          String result) {
     /**
      * Temporary nickname kick: the nick exists but was busy.
      */
@@ -31,13 +34,23 @@ public record ProbeTarget(String nick, List<String> passwords, String skipReason
     public static final String KIND_2FA = "2fa";
 
     /**
-     * Creates a target without a skip mark.
+     * Every password of this nickname was spent and none worked.
+     */
+    public static final String RESULT_EXHAUSTED = "exhausted";
+
+    /**
+     * A password of this nickname was accepted.
+     */
+    public static final String RESULT_FOUND = "found";
+
+    /**
+     * Creates a target without a skip mark or a result.
      *
      * @param nick      Nickname
      * @param passwords Passwords
      */
     public ProbeTarget(String nick, List<String> passwords) {
-        this(nick, passwords, "", 0L, "");
+        this(nick, passwords, "", 0L, "", "");
     }
 
     /**
@@ -47,6 +60,20 @@ public record ProbeTarget(String nick, List<String> passwords, String skipReason
      */
     public int passwordCount() {
         return this.passwords.size();
+    }
+
+    /**
+     * Gets the profile order rank used by the sort button.
+     *
+     * @return Rank, 1 (2FA) to 6 (unmarked)
+     */
+    public int sortRank() {
+        if (RESULT_FOUND.equals(this.result)) return 4;
+        if (hasSkip() && isTwoFactor()) return 1;
+        if (hasSkip() && skipIsInvalid()) return 2;
+        if (isExhausted()) return 3;
+        if (hasSkip()) return 5;
+        return 6;
     }
 
     /**
@@ -85,32 +112,54 @@ public record ProbeTarget(String nick, List<String> passwords, String skipReason
      * @return New target
      */
     public ProbeTarget withSkip(String reason, long at, String kind) {
+        // A found password is the final result: a later nickname kick must not overwrite it.
+        if (RESULT_FOUND.equals(this.result)) return this;
         return new ProbeTarget(this.nick, this.passwords,
-                reason == null ? "" : reason, at, kind == null ? KIND_ONLINE : kind);
+                reason == null ? "" : reason, at, kind == null ? KIND_ONLINE : kind, this.result);
     }
 
     /**
-     * Copies the target without a skip mark.
+     * Checks whether every password of this nickname was spent without success.
+     *
+     * @return Whether the nickname is exhausted
+     */
+    public boolean isExhausted() {
+        return RESULT_EXHAUSTED.equals(this.result);
+    }
+
+    /**
+     * Copies the target with another result.
+     *
+     * @param value {@link #RESULT_EXHAUSTED}, {@link #RESULT_FOUND} or empty
+     * @return New target
+     */
+    public ProbeTarget withResult(String value) {
+        return new ProbeTarget(this.nick, this.passwords, this.skipReason, this.skipAt, this.skipKind,
+                value == null ? "" : value);
+    }
+
+    /**
+     * Copies the target without a skip mark, keeping the result.
      *
      * @return New target
      */
     public ProbeTarget withoutSkip() {
-        return new ProbeTarget(this.nick, this.passwords);
+        return new ProbeTarget(this.nick, this.passwords, "", 0L, "", this.result);
     }
 
     /**
-     * Copies the target with new passwords, keeping the mark.
+     * Copies the target with new passwords, keeping the mark and the result.
      *
      * @param newPasswords Replacement passwords
      * @return New target
      */
     public ProbeTarget withPasswords(List<String> newPasswords) {
-        return new ProbeTarget(this.nick, newPasswords, this.skipReason, this.skipAt, this.skipKind);
+        return new ProbeTarget(this.nick, newPasswords, this.skipReason, this.skipAt, this.skipKind, this.result);
     }
 
     /**
-     * Copies the target with another nickname. Changing the name drops the mark: it described
-     * the old name.
+     * Copies the target with another nickname. Changing the name drops the mark and the result:
+     * they described the old name.
      *
      * @param newNick New nickname
      * @return New target
@@ -119,7 +168,7 @@ public record ProbeTarget(String nick, List<String> passwords, String skipReason
         String value = newNick == null ? "" : newNick;
         boolean same = value.equals(this.nick);
         return same
-                ? new ProbeTarget(value, this.passwords, this.skipReason, this.skipAt, this.skipKind)
+                ? new ProbeTarget(value, this.passwords, this.skipReason, this.skipAt, this.skipKind, this.result)
                 : new ProbeTarget(value, this.passwords);
     }
 }

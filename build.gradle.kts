@@ -1,4 +1,5 @@
 import net.minecraftforge.renamer.gradle.RenameJar
+import org.gradle.api.tasks.compile.JavaCompile
 
 plugins {
     id("java")
@@ -6,8 +7,14 @@ plugins {
     id("net.minecraftforge.renamer") version "1.1.2"
 }
 
+// The mixin annotation processor writes the refmap as a side output. A cached compile can
+// restore the classes without it, and a jar without a refmap crashes on class load.
+tasks.withType<JavaCompile>().configureEach {
+    outputs.cacheIf { false }
+}
+
 group = "ru.an0n.authprobe"
-version = "1.6.0+1.20.1-forge"
+version = "1.6.1+1.20.1-forge"
 description = "AuthProbe - client-side login probe for offline-mode Minecraft servers."
 
 val mcv = "1.20.1"

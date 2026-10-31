@@ -56,6 +56,11 @@ public final class ForgeEvents {
     private static final String CMD_HELP = ".help";
 
     /**
+     * Marks the current nickname as a two-factor account and moves on.
+     */
+    private static final String CMD_2FA = ".2fa";
+
+    /**
      * Ticks between background settings saves.
      */
     private static final int SAVE_INTERVAL = 100;
@@ -108,10 +113,15 @@ public final class ForgeEvents {
                 event.setCanceled(true);
                 BotController.announce(BotController.state().name() + " | " + BotController.describePosition());
             }
+            case CMD_2FA -> {
+                event.setCanceled(true);
+                BotController.markTwoFactor();
+            }
             case CMD_HELP -> {
                 event.setCanceled(true);
                 BotController.announce(".start / .go - begin or continue"
-                        + " | .stop - stop | .status - position | .help - this");
+                        + " | .stop - stop | .status - position | .2fa - mark this nick as 2FA"
+                        + " | .help - this");
             }
             default -> {
                 // Swallow every dot-prefixed line, known or not: a typo must never reach the server.
@@ -128,6 +138,12 @@ public final class ForgeEvents {
      */
     @SubscribeEvent
     public void onChatReceived(ClientChatReceivedEvent event) {
+        // Overlay system chat is drawn in the action bar, so it takes the same path as the
+        // action-bar packet: same pane colour, same diagnostics.
+        if (event instanceof ClientChatReceivedEvent.System system && system.isOverlay()) {
+            ChatWatcher.onOverlayChat(event.getMessage().getString());
+            return;
+        }
         ChatWatcher.onChat(event.getMessage().getString());
     }
 

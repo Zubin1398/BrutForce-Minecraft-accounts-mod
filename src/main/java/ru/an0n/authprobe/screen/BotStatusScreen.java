@@ -45,13 +45,13 @@ public final class BotStatusScreen extends Screen {
         int rowTwo = this.height - 30;
 
         // Reconnect and wait for .start/.go to continue from the current password.
-        this.addRenderableWidget(Button.builder(
+        Button continueButton = this.addRenderableWidget(Button.builder(
                         Component.translatable("authprobe.status.continue").withStyle(ChatFormatting.GREEN),
                         pressed -> BotController.resume())
                 .bounds(centerX - 100, rowOne, 200, 20).build());
 
         // Change the proxy and reconnect.
-        this.addRenderableWidget(Button.builder(
+        Button proxyButton = this.addRenderableWidget(Button.builder(
                         Component.translatable("authprobe.status.proxy").withStyle(ChatFormatting.AQUA), pressed -> {
                     if (!ProbeConfig.INSTANCE.rotateProxy()) {
                         BotController.announce("no proxies configured");
@@ -62,6 +62,12 @@ public final class BotStatusScreen extends Screen {
                     BotController.resume();
                 })
                 .bounds(centerX - 148, rowTwo, 144, 20).build());
+
+        // Nothing is left to continue after the last nickname failed.
+        if (BotController.state() == BotController.State.EXHAUSTED) {
+            continueButton.active = false;
+            proxyButton.active = false;
+        }
 
         // Stop the run.
         this.addRenderableWidget(Button.builder(
@@ -110,17 +116,30 @@ public final class BotStatusScreen extends Screen {
                 centerX, y, 0xFF_FF_FF_FF);
         y += 13;
 
-        // Skip mark of the current nickname, if the last nickname-level kick left one.
+        // Skip mark or probe result of the current nickname.
         ProbeTarget currentTarget = config.primary();
-        if (currentTarget.hasSkip()) {
-            String mark = currentTarget.skipIsInvalid()
-                    ? Component.translatable("authprobe.skip.invalid").getString()
-                    : currentTarget.isTwoFactor()
-                    ? Component.translatable("authprobe.skip.2fa").getString()
-                    : Component.translatable("authprobe.skip.online",
-                    SKIP_TIME.format(Instant.ofEpochMilli(currentTarget.skipAt()))).getString();
-            boolean red = currentTarget.skipIsInvalid() || currentTarget.isTwoFactor();
-            graphics.drawCenteredString(this.font, mark, centerX, y, red ? 0xFF_FF_66_66 : 0xFF_FF_AA_33);
+        String markText = null;
+        int markColor = 0xFF_A0_A0_A0;
+        if (ProbeTarget.RESULT_FOUND.equals(currentTarget.result())) {
+            markText = Component.translatable("authprobe.result.found").getString();
+            markColor = 0xFF_55_FF_88;
+        } else if (currentTarget.hasSkip()) {
+            if (currentTarget.skipIsInvalid()) {
+                markText = Component.translatable("authprobe.skip.invalid").getString();
+                markColor = 0xFF_FF_66_66;
+            } else if (currentTarget.isTwoFactor()) {
+                markText = Component.translatable("authprobe.skip.2fa").getString();
+                markColor = 0xFF_FF_66_66;
+            } else {
+                markText = Component.translatable("authprobe.skip.online",
+                        SKIP_TIME.format(Instant.ofEpochMilli(currentTarget.skipAt()))).getString();
+                markColor = 0xFF_FF_AA_33;
+            }
+        } else if (currentTarget.isExhausted()) {
+            markText = Component.translatable("authprobe.result.exhausted").getString();
+        }
+        if (markText != null) {
+            graphics.drawCenteredString(this.font, markText, centerX, y, markColor);
             y += 12;
         }
 
@@ -172,6 +191,11 @@ public final class BotStatusScreen extends Screen {
         // Position.
         graphics.drawCenteredString(this.font, BotController.describePositionComponent(), centerX, y, 0xFF_FF_FF_FF);
         y += 13;
+
+        // Sends on this nickname and in the whole run.
+        graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.sent",
+                BotController.nickSentCount(), BotController.sentCount()), centerX, y, 0xFF_A0_A0_A0);
+        y += 12;
 
         // What happens on continue.
         graphics.drawCenteredString(this.font, Component.translatable("authprobe.status.upnext",
