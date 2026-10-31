@@ -59,6 +59,11 @@ public final class ProbeSetupScreen extends Screen {
     private static final int DELETE_EXHAUSTED = 2;
 
     /**
+     * Delete-all action: every profile of the active server.
+     */
+    private static final int DELETE_ALL = 3;
+
+    /**
      * How long a bulk-delete button waits for the confirming click, milliseconds.
      */
     private static final long DELETE_CONFIRM_MS = 4000L;
@@ -393,7 +398,7 @@ public final class ProbeSetupScreen extends Screen {
                 .bounds(nickButtonsX + 60, 64, 18, 18).build());
         this.clearProfilesButton = this.addRenderableWidget(Button.builder(
                         Component.literal("X").withStyle(ChatFormatting.RED),
-                        pressed -> this.clearProfiles())
+                        pressed -> this.requestDelete(DELETE_ALL))
                 .bounds(nickButtonsX + 80, 64, 18, 18).build());
         this.deleteTwoFactorButton = this.addRenderableWidget(Button.builder(
                         Component.literal("2FA").withStyle(ChatFormatting.GOLD),
@@ -1045,6 +1050,7 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
      */
     private void clearProfiles() {
         ProbeConfig config = ProbeConfig.INSTANCE;
+        int removed = config.targets().size();
         config.replaceTargets(List.of(new ProbeTarget("", List.of())));
         config.rememberLast("", "");
         config.save();
@@ -1052,6 +1058,9 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         this.passwordCount = 0;
         this.nickValid = false;
         this.refreshOptions();
+        Component message = Component.translatable("authprobe.nick.clear.done", removed);
+        BotController.announce(message);
+        BotController.notify(message);
     }
 
     /**
@@ -1076,12 +1085,16 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
      * Handles a bulk-delete button: the first click arms it, the second one inside
      * {@link #DELETE_CONFIRM_MS} performs the deletion.
      *
-     * @param action {@link #DELETE_2FA} or {@link #DELETE_EXHAUSTED}
+     * @param action {@link #DELETE_2FA}, {@link #DELETE_EXHAUSTED} or {@link #DELETE_ALL}
      */
     private void requestDelete(int action) {
         long now = System.currentTimeMillis();
         if (this.deleteConfirmAction == action && now <= this.deleteConfirmUntil) {
             this.deleteConfirmAction = 0;
+            if (action == DELETE_ALL) {
+                this.clearProfiles();
+                return;
+            }
             ProbeConfig config = ProbeConfig.INSTANCE;
             int removed = action == DELETE_2FA
                     ? config.removeTargetsWithKind(ProbeTarget.KIND_2FA)
@@ -1097,6 +1110,9 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
         }
         this.deleteConfirmAction = action;
         this.deleteConfirmUntil = now + DELETE_CONFIRM_MS;
+        if (action == DELETE_ALL) {
+            BotController.warn(Component.translatable("authprobe.nick.clear.confirm"));
+        }
         this.updateDeleteButtons();
     }
 
@@ -1104,9 +1120,15 @@ private void renderChatPane(GuiGraphics graphics, int x, int top, int width, int
      * Refreshes the bulk-delete labels: a pending action shows a red question mark.
      */
     private void updateDeleteButtons() {
-        if (this.deleteTwoFactorButton == null || this.deleteExhaustedButton == null) return;
+        if (this.clearProfilesButton == null || this.deleteTwoFactorButton == null
+                || this.deleteExhaustedButton == null) return;
+        boolean armAll = this.deleteConfirmAction == DELETE_ALL;
         boolean armTwoFactor = this.deleteConfirmAction == DELETE_2FA;
         boolean armExhausted = this.deleteConfirmAction == DELETE_EXHAUSTED;
+        this.clearProfilesButton.setMessage(Component.literal(armAll ? "?" : "X")
+                .withStyle(ChatFormatting.RED));
+        this.clearProfilesButton.setTooltip(tooltip(armAll
+                ? "authprobe.nick.clear.confirm.tip" : "authprobe.nick.clear.tip"));
         this.deleteTwoFactorButton.setMessage(Component.literal(armTwoFactor ? "?" : "2FA")
                 .withStyle(armTwoFactor ? ChatFormatting.RED : ChatFormatting.GOLD));
         this.deleteExhaustedButton.setMessage(Component.literal(armExhausted ? "?" : "0")
